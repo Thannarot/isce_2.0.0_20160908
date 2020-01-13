@@ -1,18 +1,26 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# copyright: 2010 to the present, california institute of technology.
-# all rights reserved. united states government sponsorship acknowledged.
-# any commercial use must be negotiated with the office of technology transfer
-# at the california institute of technology.
+# Copyright 2010 California Institute of Technology. ALL RIGHTS RESERVED.
 # 
-# this software may be subject to u.s. export control laws. by accepting this
-# software, the user agrees to comply with all applicable u.s. export laws and
-# regulations. user has the responsibility to obtain export licenses,  or other
-# export authority as may be required before exporting such information to
-# foreign countries or providing access to foreign persons.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 # 
-# installation and use of this software is restricted by a license agreement
-# between the licensee and the california institute of technology. it is the
-# user's responsibility to abide by the terms of the license agreement.
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+# United States Government Sponsorship acknowledged. This software is subject to
+# U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+# (No [Export] License Required except when exporting to an embargoed country,
+# end user, or in support of a prohibited end use). By downloading this software,
+# the user agrees to comply with all applicable U.S. export laws and regulations.
+# The user has the responsibility to obtain export licenses, or other export
+# authority as may be required before exporting this software to any 'EAR99'
+# embargoed foreign country or citizen of those countries.
 #
 # Author: Giangi Sacco
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -290,6 +298,11 @@ class Image(DataAccessor, Configurable):
     def createImage(self):
         self.createAccessor()
         da = self.getAccessor()
+
+        ###Intercept for GDAL
+        if self.methodSelector() != 'api':
+            return None
+
         try:
             fsize = os.path.getsize(self.filename)
         except OSError:
@@ -342,7 +355,7 @@ class Image(DataAccessor, Configurable):
         self.length = self.length
         super(Image, self).dump(filename)
         self.renderVRT()
-    
+
     @use_api
     def adaptToRender(self):
         self.length = self.length
@@ -362,9 +375,6 @@ class Image(DataAccessor, Configurable):
         from datetime import datetime
         from isceobj.XmlUtil import xmlUtils as xml
         from isce import release_version, release_svn_revision, release_date, svn_revision
-#        odProp = {}
-#        odMisc = {}
-#        odFact = {}
         odProp = xml.OrderedDict()
         odFact = xml.OrderedDict()
         odMisc = xml.OrderedDict()
@@ -372,7 +382,7 @@ class Image(DataAccessor, Configurable):
         # size, before rendering  make sure that coord1.size is set to length
         self.coord2.coordSize = self.length
         self.renderToDictionary(self, odProp, odFact, odMisc)
-        # remove key,value parir with empty value (except if value is zero)
+        # remove key,value pair with empty value (except if value is zero)
         DU.cleanDictionary(odProp)
         DU.cleanDictionary(odFact)
         DU.cleanDictionary(odMisc)
@@ -385,12 +395,11 @@ class Image(DataAccessor, Configurable):
         self.renderVRT()
         return None
 
-    # #
-    # This method renders and ENVI HDR file similar to the XML file.
-
+    # This method renders an ENVI HDR file similar to the XML file.
     def renderEnviHDR(self):
         '''
-        Renders a bare minimum ENVI HDR file, that can be used to directly ingest the outputs into a GIS package.
+        Renders a bare minimum ENVI HDR file, that can be used to directly ingest the outputs into
+        a GIS package.
         '''
 
         typeMap = { 'BYTE'   : 1,
@@ -419,18 +428,15 @@ byte order = {5}
         map_infostr = """coordinate system string = {{GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137, 298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]]}}
 map_info = {{Geographic Lat/Lon, 1.0, 1.0, {0}, {1}, {2}, {3}, WGS-84, units=Degrees}}"""
 
+        flag = False
         try:
-            parList = list(range(4))
-            parList[0] = self.coord1.coordStart
-            parList[1] = self.coord2.coordStart
-            parList[2] = self.coord1.coordDelta
-            parList[3] = self.coord2.coordDelta
-
-            flag = any(v is None for v in parList)
+            if (self.coord1.coordStart == 0.) and \
+               (self.coord2.coordStart == 0.) and \
+               (self.coord1.coordDelta == 1.) and \
+               (self.coord2.coordDelta == 1.):
+                    flag = True
         except:
-            flag = False
-
-
+            pass
 
 
         outfile = self.getFilename() + '.hdr'
@@ -440,7 +446,10 @@ map_info = {{Geographic Lat/Lon, 1.0, 1.0, {0}, {1}, {2}, {3}, WGS-84, units=Deg
                 orderMap[ENDIAN[self.byteOrder].upper()])
 
         if not flag:
-            outstr += map_infostr.format(parList[0], parList[1], parList[2], -parList[3])
+            outstr += map_infostr.format(self.coord1.coordStart,
+                                         self.coord2.coordStart,
+                                         self.coord1.coordDelta,
+                                         -self.coord2.coordDelta)
 
         with open(outfile, 'w') as f:
             f.write(outstr)
@@ -508,16 +517,15 @@ map_info = {{Geographic Lat/Lon, 1.0, 1.0, {0}, {1}, {2}, {3}, WGS-84, units=Deg
 
 
         srs = "EPSG:4326"
+        flag = False
         try:
-            parList = list(range(4))
-            parList[0] = self.coord1.coordStart
-            parList[1] = self.coord2.coordStart
-            parList[2] = self.coord1.coordDelta
-            parList[3] = self.coord2.coordDelta
-
-            flag = any(v is None for v in parList)
+            if (self.coord1.coordStart == 0.) and \
+               (self.coord2.coordStart == 0.) and \
+               (self.coord1.coordDelta == 1.) and \
+               (self.coord2.coordDelta == 1.):
+                    flag = True
         except:
-            flag = False
+            pass
 
 
 
@@ -529,8 +537,12 @@ map_info = {{Geographic Lat/Lon, 1.0, 1.0, {0}, {1}, {2}, {3}, WGS-84, units=Deg
         root.attrib['rasterYSize'] = str(self.length)
 
         if not flag:
+            print('Writing geotrans to VRT for {0}'.format(self.filename))
             ET.SubElement(root, 'SRS').text = "EPSG:4326"
-            gtstr = "{0}, {1}, 0.0, {2}, 0.0, {3}".format(parList[0], parList[2], parList[1], parList[3])
+            gtstr = "{0}, {1}, 0.0, {2}, 0.0, {3}".format(self.coord1.coordStart,
+                    self.coord1.coordDelta,
+                    self.coord2.coordStart,
+                    self.coord2.coordDelta)
             ET.SubElement(root, 'GeoTransform').text = gtstr
 
         nbytes = sizeMap[self.dataType.upper()]
@@ -555,7 +567,7 @@ map_info = {{Geographic Lat/Lon, 1.0, 1.0, {0}, {1}, {2}, {3}, WGS-84, units=Deg
                 ET.SubElement(broot, 'PixelOffset').text = str(self.bands * nbytes)
                 ET.SubElement(broot, 'LineOffset').text = str(self.bands * self.width * nbytes)
             elif self.scheme.upper() == 'BSQ':
-                ET.SubElement(broot, 'ImageOffset').text = str(band * self.width * self.length)
+                ET.SubElement(broot, 'ImageOffset').text = str(band * self.width * self.length * nbytes)
                 ET.SubElement(broot, 'PixelOffset').text = str(nbytes)
                 ET.SubElement(broot, 'LineOffset').text = str(self.width * nbytes)
 
@@ -691,7 +703,7 @@ map_info = {{Geographic Lat/Lon, 1.0, 1.0, {0}, {1}, {2}, {3}, WGS-84, units=Deg
     @property
     def extraFilename(self):
         return self._extraFilename
-    
+
     @extraFilename.setter
     def extraFilename(self,val):
         self._extraFilename = val
@@ -792,7 +804,7 @@ class ImageCoordinate(Configurable):
                                          doc="Starting value of the coordinate.")
         self._coordEnd = self.parameter('coordEnd', public_name='endingValue', default=None, units='',
                                          type=float, mandatory=False,
-                                         doc="Starting value of the coordinate.")
+                                         doc="Ending value of the coordinate.")
         self._coordDelta = self.parameter('coordDelta', public_name='delta', default=1, units='',
                                          type=float, mandatory=False,
                                          doc="Coordinate quantization.")

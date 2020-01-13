@@ -22,7 +22,7 @@ class RangePolyInterpolator: public FieldInterpolator
         double getField(double row, double col);
 
     protected:
-        cPoly1d poly; 
+        cPoly1d poly;
 };
 
-#endif RangePolyInterpolator_h
+#endif //RangePolyInterpolator_h

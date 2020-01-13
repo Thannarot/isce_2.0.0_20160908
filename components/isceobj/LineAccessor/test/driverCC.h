@@ -6,8 +6,8 @@
 
 extern "C"
 {
-	void testImageSetGet_f(uint64_t *, uint64_t *, int *);
+        void testImageSetGet_f(uint64_t *, uint64_t *, int *);
 
 }
 
-#endif driverCC_h
+#endif //driverCC_h

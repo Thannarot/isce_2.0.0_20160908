@@ -14,6 +14,10 @@ import os
 logger = logging.getLogger('isce.topsinsar.runFilter')
 
 def runFilter(self):
+
+    if not self.doInSAR:
+        return
+
     logger.info("Applying power-spectral filter")
 
     mergedir = self._insar.mergedDirname

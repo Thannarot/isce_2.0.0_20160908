@@ -10,11 +10,9 @@ import isceobj
 import logging
 import datetime
 from isceobj.Location.Offset import OffsetField, Offset
-from isceobj.Util.decorators import use_api
 
 logger = logging.getLogger('isce.topsinsar.rangecoreg')
 
-@use_api
 def runAmpcor(master, slave):
     '''
     Run one ampcor process.
@@ -78,8 +76,8 @@ def runAmpcor(master, slave):
     if not objAmpcor.lastSampleDown:
         objAmpcor.setLastSampleDown(offDnmax)
 
-    if not objAmpcor.numberLocationDown:
-        objAmpcor.setNumberLocationDown(6)
+    ###Since we are only dealing with overlaps
+    objAmpcor.setNumberLocationDown(20)
 
     #####Override gross offsets if not provided
     if not objAmpcor.acrossGrossOffset:
@@ -104,37 +102,47 @@ def runAmpcor(master, slave):
     return objAmpcor.getOffsetField()
 
 
-def runRangeCoreg(self):
+def runRangeCoreg(self, debugPlot=True):
     '''
     Estimate constant offset in range.
     '''
 
+    if not self.doESD:
+        return 
+
     catalog = isceobj.Catalog.createCatalog(self._insar.procDoc.name)
 
-    minBurst, maxBurst = self._insar.commonMasterBurstLimits
-    maxBurst = maxBurst - 1  ###For overlaps 
-    
-    masterTop = self._insar.loadProduct( self._insar.masterSlcTopOverlapProduct + '.xml')
-    masterBottom  = self._insar.loadProduct( self._insar.masterSlcBottomOverlapProduct + '.xml')
-
-    slaveTop = self._insar.loadProduct( self._insar.coregTopOverlapProduct + '.xml')
-    slaveBottom = self._insar.loadProduct( self._insar.coregBottomOverlapProduct + '.xml')
-
+    swathList = self._insar.getValidSwathList(self.swaths)
 
     rangeOffsets = []
     snr = []
 
+    for swath in swathList:
 
-    for pair in [(masterTop,slaveTop), (masterBottom,slaveBottom)]:
-        for ii in range(minBurst,maxBurst):
-            mFile = pair[0].bursts[ii-minBurst].image.filename
-            sFile = pair[1].bursts[ii-minBurst].image.filename
+        if self._insar.numberOfCommonBursts[swath-1] < 2:
+            print('Skipping range coreg for swath IW{0}'.format(swath))
+            continue
+
+        minBurst, maxBurst = self._insar.commonMasterBurstLimits(swath-1)
+
+        maxBurst = maxBurst - 1  ###For overlaps 
+    
+        masterTop = self._insar.loadProduct( os.path.join(self._insar.masterSlcOverlapProduct, 'top_IW{0}.xml'.format(swath)))
+        masterBottom  = self._insar.loadProduct( os.path.join(self._insar.masterSlcOverlapProduct , 'bottom_IW{0}.xml'.format(swath)))
+
+        slaveTop = self._insar.loadProduct( os.path.join(self._insar.coregOverlapProduct , 'top_IW{0}.xml'.format(swath)))
+        slaveBottom = self._insar.loadProduct( os.path.join(self._insar.coregOverlapProduct, 'bottom_IW{0}.xml'.format(swath)))
+
+        for pair in [(masterTop,slaveTop), (masterBottom,slaveBottom)]:
+            for ii in range(minBurst,maxBurst):
+                mFile = pair[0].bursts[ii-minBurst].image.filename
+                sFile = pair[1].bursts[ii-minBurst].image.filename
             
-            field = runAmpcor(mFile, sFile)
+                field = runAmpcor(mFile, sFile)
 
-            for offset in field:
-                rangeOffsets.append(offset.dx)
-                snr.append(offset.snr)
+                for offset in field:
+                    rangeOffsets.append(offset.dx)
+                    snr.append(offset.snr)
 
     ###Cull 
     mask = np.logical_and(np.array(snr) >  self.offsetSNRThreshold, np.abs(rangeOffsets) < 1.2)
@@ -148,22 +156,27 @@ def runRangeCoreg(self):
     center = 0.5*(bins[:-1] + bins[1:])
 
 
-    debugplot = True
     try:
         import matplotlib as mpl
         mpl.use('Agg')
         import matplotlib.pyplot as plt
     except:
         print('Matplotlib could not be imported. Skipping debug plot ...')
-        debugplot = False
+        debugPlot = False
 
-    if debugplot:
-        ####Plotting
-        plt.figure()
-        plt.bar(center, hist, align='center', width = 0.7*(bins[1] - bins[0]))
-        plt.xlabel('Range shift in pixels')
-        plt.savefig( os.path.join(self._insar.esdDirname, 'rangeMisregistration.png'))
-        plt.close()
+    if debugPlot:
+
+        try:
+            ####Plotting
+            plt.figure()
+            plt.bar(center, hist, align='center', width = 0.7*(bins[1] - bins[0]))
+            plt.xlabel('Range shift in pixels')
+            plt.savefig( os.path.join(self._insar.esdDirname, 'rangeMisregistration.jpg'))
+            plt.close()
+        except:
+            print('Looks like matplotlib could not save image to JPEG, continuing .....')
+            print('Install Pillow to ensure debug plots for Residual range offsets are generated.')
+            pass
 
 
     catalog.addItem('Median', medianval, 'esd')

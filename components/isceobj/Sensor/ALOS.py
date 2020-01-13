@@ -1,18 +1,26 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# copyright: 2010 to the present, california institute of technology.
-# all rights reserved. united states government sponsorship acknowledged.
-# any commercial use must be negotiated with the office of technology transfer
-# at the california institute of technology.
+# Copyright 2010 California Institute of Technology. ALL RIGHTS RESERVED.
 # 
-# this software may be subject to u.s. export control laws. by accepting this
-# software, the user agrees to comply with all applicable u.s. export laws and
-# regulations. user has the responsibility to obtain export licenses,  or other
-# export authority as may be required before exporting such information to
-# foreign countries or providing access to foreign persons.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 # 
-# installation and use of this software is restricted by a license agreement
-# between the licensee and the california institute of technology. it is the
-# user's responsibility to abide by the terms of the license agreement.
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+# United States Government Sponsorship acknowledged. This software is subject to
+# U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+# (No [Export] License Required except when exporting to an embargoed country,
+# end user, or in support of a prohibited end use). By downloading this software,
+# the user agrees to comply with all applicable U.S. export laws and regulations.
+# The user has the responsibility to obtain export licenses, or other export
+# authority as may be required before exporting this software to any 'EAR99'
+# embargoed foreign country or citizen of those countries.
 #
 # Author: Walter Szeliga
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -176,6 +184,11 @@ class ALOS(Sensor):
         self._populateOrbit()
         self._populateAttitude()
         self._populateDistortions()
+
+        productLevel = float(self.leaderFile.sceneHeaderRecord.metadata[
+            'Product level code'])
+        if productLevel == 1.0:
+            self.updateRawParameters()
         pass
 
     def _populatePlatform(self):
@@ -203,13 +216,19 @@ class ALOS(Sensor):
                 ]*1e-6
             rangePixelSize = SPEED_OF_LIGHT/(2.0*rangeSamplingRate)
             prf = self.leaderFile.sceneHeaderRecord.metadata[
-                'Pulse Repetition Frequency']
+                'Pulse Repetition Frequency']/1000.
+
+            ###Fix for quad pol data
+            if prf > 3000:
+                prf = prf / 2.0
+
+            print('LEADER PRF: ', prf)
             beamNumber = self.leaderFile.sceneHeaderRecord.metadata[
                 'Antenna beam number']
-            if self.imageFile.prf:
-                prf = self.imageFile.prf
-            else:
-                self.logger.info("Using nominal PRF")
+#            if self.imageFile.prf:
+#                prf = self.imageFile.prf
+#            else:
+#                self.logger.info("Using nominal PRF")
             bandwidth = self.leaderFile.calibrationRecord.metadata[
                 'Band width']*1e6
             #if (not bandwidth):
@@ -527,6 +546,72 @@ class ALOS(Sensor):
 
         return qualityString
 
+
+    def updateRawParameters(self):
+        '''
+        Parse the data in python.
+        '''
+        with open(self._imageFile,'rb') as fp:
+            width = self.imageFile.width
+            numberOfLines = self.imageFile.length
+            prefix = self.imageFile.prefix
+            suffix = self.imageFile.suffix
+            dataSize = self.imageFile.dataSize
+
+            fp.seek(720, os.SEEK_SET) # Skip the header
+            tags = []
+
+            print('WIDTH: ', width)
+            print('LENGTH: ', numberOfLines)
+            print('PREFIX: ', prefix)
+            print('SUFFIX: ', suffix)
+            print('DATASIZE: ', dataSize)
+
+            for i in range(numberOfLines):
+                if not i%1000: self.logger.info("Line %s" % i)
+                imageRecord = CEOS.CEOSDB(
+                            xml = os.path.join(xmlPrefix,'alos/image_record.xml'),
+                            dataFile=fp)
+                imageRecord.parse()
+
+                tags.append(float(imageRecord.metadata[
+                            'Sensor acquisition milliseconds of day']))
+                data = fp.read(dataSize)
+                pass
+        ###Do parameter fit
+        import numpy as np
+
+
+        tarr = np.array(tags) - tags[0]
+        ref = np.arange(tarr.size) / self.frame.PRF
+        print('PRF: ', self.frame.PRF)
+        ####Check every 20 microsecs
+        off = np.arange(50)*2.0e-5
+        res = np.zeros(off.size)
+
+        ###Check which offset produces the same millisec truncation
+        ###Assumes PRF is correct
+        for xx in range(off.size):
+            ttrunc = np.floor((ref+off[xx])*1000)
+            res[xx] = np.sum(tarr-ttrunc)
+
+        res = np.abs(res)
+        
+#        import matplotlib.pyplot as plt
+#        plt.plot(res)
+#        plt.show()
+
+
+        delta = datetime.timedelta(seconds=np.argmin(res)*2.0e-5)
+        print('TIME OFFSET: ', delta)
+        self.frame.sensingStart += delta
+        self.frame.sensingMid += delta
+        self.frame.sensingStop += delta
+        return None
+
+
+
+
 class LeaderFile(object):
 
     def __init__(self,file=None):
@@ -611,6 +696,9 @@ class ImageFile(object):
         self.imageFDR = None
         self.numberOfSarChannels = None
         self.prf = None
+        self.prefix=None
+        self.suffix=None
+        self.dataSize = None
         return None
 
     def parse(self, calculateRawDimensions=True):
@@ -669,6 +757,12 @@ class ImageFile(object):
         # updated 07/24/2012
         self.width = prmDict['NUMBER_BYTES_PER_LINE'] - 2 * prmDict['FIRST_SAMPLE']
         self.length = self.imageFDR.metadata['Number of lines per data set']
+        self.prefix = self.imageFDR.metadata[
+                    'Number of bytes of prefix data per record']
+        self.suffix = self.imageFDR.metadata[
+                    'Number of bytes of suffix data per record']
+        self.dataSize = self.imageFDR.metadata[
+                    'Number of bytes of SAR data per record']
         self.start_time = self._parseClockTime(prmDict['SC_CLOCK_START'])
         self.stop_time = self._parseClockTime(prmDict['SC_CLOCK_STOP'])
         self.startingRange = prmDict['NEAR_RANGE']
@@ -684,6 +778,10 @@ class ImageFile(object):
         rawImage.renderVRT()
         # updated 07/24/2012
         return None
+
+
+
+
 
     def extractSLC(self, output=None):
         """
@@ -720,30 +818,31 @@ class ImageFile(object):
                     'Number of bytes of SAR data per record']
 
                 fp.seek(self.HEADER_LINES, os.SEEK_SET) # Skip the header
+
                 for i in range(numberOfLines):
                     if not i%1000: self.parent.logger.info("Line %s" % i)
-                    if i == 0:
-                        imageRecord = CEOS.CEOSDB(
-                            xml=os.path.join(xmlPrefix,'alos/image_record.xml'),
+                    imageRecord = CEOS.CEOSDB(
+                            xml = os.path.join(xmlPrefix,'alos/image_record.xml'),
                             dataFile=fp)
-                        imageRecord.parse()
+                    imageRecord.parse()
+
+                    if i == 0:
                         self.start_time = self._getAcquisitionTime(imageRecord)
                         self.startingRange = self._getSlantRange(imageRecord)
                         self.prf = self._getPRF(imageRecord)
                     elif i == (numberOfLines-1):
-                        imageRecord = CEOS.CEOSDB(
-                            xml=os.path.join(xmlPrefix,'alos/image_record.xml'),
-                            dataFile=fp)
-                        imageRecord.parse()
                         self.stop_time = self._getAcquisitionTime(imageRecord)
-                    else:
+#                    else:
                         # Skip the first 412 bytes of each line
-                        fp.seek(prefix, os.SEEK_CUR)
-                        pass
+#                        fp.seek(prefix, os.SEEK_CUR)
+#                        pass
+
                     data = fp.read(dataSize)
                     out.write(data)
                     fp.seek(suffix, os.SEEK_CUR)
                     pass
+
+
                 pass
             pass
         return None

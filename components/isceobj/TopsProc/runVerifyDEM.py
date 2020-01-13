@@ -6,17 +6,23 @@
 import logging
 import isceobj
 import mroipac
+from isceobj.Util.ImageUtil import DemImageLib
 import os
 import numpy as np
-from isceobj.Util.decorators import use_api
 
 logger = logging.getLogger('isce.insar.VerifyDEM')
+
+class INFO:
+    def __init__(self, snwe):
+        self.extremes = snwe
+    def getExtremes(self, x):
+        return self.extremes
 
 def runVerifyDEM(self):
     '''
     Make sure that a DEM is available for processing the given data.
     '''
-    
+
     self.demStitcher.noFilling = False
 
     ###If provided in the input XML file
@@ -24,7 +30,7 @@ def runVerifyDEM(self):
         demimg = isceobj.createDemImage()
         demimg.load(self.demFilename + '.xml')
         if not os.path.exists(self.demFilename + '.vrt'):
-            deming.renderVRT()
+            demimg.renderVRT()
 
         if demimg.reference.upper() == 'EGM96':
             wgsdemname  = self.demFilename + '.wgs84'
@@ -40,61 +46,55 @@ def runVerifyDEM(self):
                 demimg = self.demStitcher.correct(demimg)
 
         elif demimg.reference.upper() != 'WGS84':
-            raise Exception('Unknown reference system for DEM: {0}'.format(deming.reference))
+            raise Exception('Unknown reference system for DEM: {0}'.format(demimg.reference))
 
     else:
 
-        master = self._insar.loadProduct( self._insar.masterSlcProduct + '.xml')
-        slave  = self._insar.loadProduct( self._insar.slaveSlcProduct + '.xml')
+        swathList = self._insar.getValidSwathList(self.swaths)
+        bboxes = []
+        for swath in swathList:
+            if self._insar.numberOfCommonBursts[swath-1] > 0:
+                master = self._insar.loadProduct( os.path.join(self._insar.masterSlcProduct, 'IW{0}.xml'.format(swath)))
 
-        mbox = master.getBbox()
-        sbox = slave.getBbox()
+                slave  = self._insar.loadProduct( os.path.join(self._insar.slaveSlcProduct,  'IW{0}.xml'.format(swath)))
 
-        ####Union of bounding boxes
-        bbox = [min(mbox[0], sbox[0]), max(mbox[1], sbox[1]),
-               min(mbox[2], sbox[2]), max(mbox[3], sbox[3])]
+                ####Merges orbit as needed for multi-stitched frames
+                mOrb = self._insar.getMergedOrbit([master])
+                sOrb = self._insar.getMergedOrbit([slave])
+
+                mbox = master.getBbox()
+                sbox = slave.getBbox()
+
+                ####Union of bounding boxes
+                bbox = [min(mbox[0], sbox[0]), max(mbox[1], sbox[1]),
+                        min(mbox[2], sbox[2]), max(mbox[3], sbox[3])]
+
+                bboxes.append(bbox)
+
+
+        if len(bboxes) == 0 :
+            raise Exception('Something went wrong in determining bboxes')
+
+        else:
+            bbox = [min([x[0] for x in bboxes]),
+                    max([x[1] for x in bboxes]),
+                    min([x[2] for x in bboxes]),
+                    max([x[3] for x in bboxes])]
+
 
         ####Truncate to integers
         tbox = [np.floor(bbox[0]), np.ceil(bbox[1]),
                 np.floor(bbox[2]), np.ceil(bbox[3])]
 
+        #EMG
+        info = INFO(tbox)
+        self.useZeroTiles = True
+        DemImageLib.createDem(tbox, info, self, self.demStitcher,
+            self.useHighResolutionDemOnly, self.useZeroTiles)
 
-        filename = self.demStitcher.defaultName(tbox)
-        wgsfilename = filename + '.wgs84'
-
-        ####Check if WGS84 file exists
-        if os.path.exists(wgsfilename) and os.path.exists(wgsfilename + '.xml'):
-            demimg = isceobj.createDemImage()
-            demimg.load(wgsfilename + '.xml')
-
-            if not os.path.exists(wgsfilename + '.vrt'):
-                demimg.renderVRT()
-
-        ####Check if EGM96 file exists
-        elif os.path.exists(filename) and os.path.exists(filename + '.xml'):
-            inimg = isceobj.createDemImage()
-            inimg.load(filename + '.xml')
-
-            if not os.path.exists(filename + '.xml'):
-                inimg.renderVRT()
-
-            demimg = self.demStitcher.correct(inimg)
-
-        else:
-            stitchOk = self.demStitcher.stitch(tbox[0:2], tbox[2:4])
-
-            if not stitchOk:
-                logger.error("Cannot form the DEM for the region of interest. If you have one, set the appropriate DEM component in the input file.")
-                raise Exception
-
-            inimg = isceobj.createDemImage()
-            inimg.load(filename + '.xml')
-            if not os.path.exists(filename):
-                inimg.renderVRT()
-
-            demimg = self.demStitcher.correct(inimg)
-
-        #get water mask
-#        self.runCreateWbdMask(info)
+        # createDem puts the dem image in self. Put a reference in
+        # local variable demimg to return the filename in the same
+        # way as done in the "if" clause above
+        demimg = self.demImage
 
     return demimg.filename

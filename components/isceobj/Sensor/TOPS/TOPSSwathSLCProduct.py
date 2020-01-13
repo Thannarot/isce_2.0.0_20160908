@@ -223,8 +223,11 @@ class TOPSSwathSLCProduct(Component):
         Compare the mid frames to start. Returns the integer offset between frame indices.
         '''
 
+
+        if (len(sframe.bursts) < len(self.bursts)):
+            return -sframe.getBurstOffset(self)
+
         checkBursts = [0.5, 0.25, 0.75, 0, 1]
-    
         offset = []
         for bfrac in checkBursts:
             mind = int(self.numberOfBursts * bfrac)
@@ -251,7 +254,7 @@ class TOPSSwathSLCProduct(Component):
        
             if arr[ind] < mdist:
                 return ind-mind
-
+        
         raise  Exception('Could not determine a suitable burst offset')
         return 
 
@@ -260,7 +263,6 @@ class TOPSSwathSLCProduct(Component):
         Get range of min to max bursts w.r.t another swath product.
         minBurst, maxBurst can together be put into a slice object.
         '''
-
         burstoffset = self.getBurstOffset(sFrame)
         print('Estimated burst offset: ', burstoffset)
 

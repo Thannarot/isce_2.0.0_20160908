@@ -27,7 +27,7 @@ def runOffsetGeocode(self):
     for f in self.off_geocode_list:
         print(f)
     print()
-    self.runGeocode(self.off_geocode_list, self.do_unwrap, self.geocode_bbox, self.off_mode)
+    self.runGeocode(self.off_geocode_list, self.do_unwrap, self.geocode_bbox, is_offset_mode = True)
 
 if __name__ == "__main__":
     '''

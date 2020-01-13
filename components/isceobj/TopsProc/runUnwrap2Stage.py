@@ -5,6 +5,7 @@
 
 import sys
 import isceobj
+import os
 
 from contrib.UnwrapComp.unwrapComponents import UnwrapComponents
 
@@ -22,9 +23,10 @@ def runUnwrap2Stage(self, unwrapper_2stage_name=None, solver_2stage=None):
     print('Name: %s'%unwrapper_2stage_name)
     print('Solver: %s'%solver_2stage)
 
-    inpFile = self.insar.unwrappedIntFilename
-    ccFile  = self.insar.connectedComponentsFilename
-    outFile = self.insar.unwrapped2StageFilename
+
+    inpFile = os.path.join( self._insar.mergedDirname, self._insar.unwrappedIntFilename)
+    ccFile = inpFile + '.conncomp'
+    outFile = os.path.join( self._insar.mergedDirname, self.insar.unwrapped2StageFilename)
 
     # Hand over to 2Stage unwrap
     unw = UnwrapComponents()

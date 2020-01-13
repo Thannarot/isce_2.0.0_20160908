@@ -10,91 +10,107 @@ import logging
 
 logger = logging.getLogger('isce.topsinsar.esd')
 
-def runESD(self):
+def runESD(self, debugPlot=True):
     '''
     Estimate azimuth misregistration.
     '''
 
+    if not self.doESD:
+        return
+
     catalog = isceobj.Catalog.createCatalog(self._insar.procDoc.name)
 
-    master = self._insar.loadProduct( self._insar.masterSlcProduct + '.xml' )
+    swathList = self._insar.getValidSwathList(self.swaths)
 
-    minBurst, maxBurst = self._insar.commonMasterBurstLimits
-    slaveBurstStart, slaveBurstEnd = self._insar.commonSlaveBurstLimits
+    extraOffset = self.extraESDCycles * np.pi * 2
 
-    esddir = self._insar.esdDirname
-    alks = self.esdAzimuthLooks
-    rlks = self.esdRangeLooks
+    for swath in swathList:
 
-    maxBurst = maxBurst - 1
+        if self._insar.numberOfCommonBursts[swath-1] < 2:
+            print('Skipping ESD for swath IW{0}'.format(swath))
+            continue
 
-    combIntName = os.path.join(esddir, 'combined.int')
-    combFreqName = os.path.join(esddir, 'combined_freq.bin')
-    combCorName = os.path.join(esddir, 'combined.cor')
-    combOffName = os.path.join(esddir, 'combined.off')
+        master = self._insar.loadProduct( os.path.join(self._insar.masterSlcProduct, 'IW{0}.xml'.format(swath)))
 
+        minBurst, maxBurst = self._insar.commonMasterBurstLimits(swath-1)
+        slaveBurstStart, slaveBurstEnd = self._insar.commonSlaveBurstLimits(swath-1)
 
-    for ff in [combIntName, combFreqName, combCorName, combOffName]:
-        if os.path.exists(ff):
-            os.remove(ff)
+        esddir = self._insar.esdDirname
+        alks = self.esdAzimuthLooks
+        rlks = self.esdRangeLooks
 
+        maxBurst = maxBurst - 1
 
-    val = []
-    lineCount = 0
-    for ii in range(minBurst, maxBurst):
-        intname = os.path.join(esddir, 'overlap_%02d.%dalks_%drlks.int'%(ii+1, alks,rlks))
-        freqname = os.path.join(esddir, 'freq_%02d.%dalks_%drlks.bin'%(ii+1,alks,rlks))
-        corname = os.path.join(esddir, 'overlap_%02d.%dalks_%drlks.cor'%(ii+1, alks, rlks))
+        combIntName = os.path.join(esddir, 'combined_IW{0}.int'.format(swath))
+        combFreqName = os.path.join(esddir, 'combined_freq_IW{0}.bin'.format(swath))
+        combCorName = os.path.join(esddir, 'combined_IW{0}.cor'.format(swath))
+        combOffName = os.path.join(esddir, 'combined_IW{0}.off'.format(swath))
 
 
-        img = isceobj.createImage()
-        img.load(intname + '.xml')
-        width = img.getWidth()
-        length = img.getLength()
-
-        ifg = np.fromfile(intname, dtype=np.complex64).reshape((-1,width))
-        freq = np.fromfile(freqname, dtype=np.float32).reshape((-1,width))
-        cor = np.fromfile(corname, dtype=np.float32).reshape((-1,width))
-
-        with open(combIntName, 'ab') as fid:
-            ifg.tofile(fid)
-
-        with open(combFreqName, 'ab') as fid:
-            freq.tofile(fid)
-
-        with open(combCorName, 'ab') as fid:
-            cor.tofile(fid)
-
-        off = np.angle(ifg) / freq
-
-        with open(combOffName, 'ab') as fid:
-            off.astype(np.float32).tofile(fid)
-
-        lineCount += length
+        for ff in [combIntName, combFreqName, combCorName, combOffName]:
+            if os.path.exists(ff):
+                print('Previous version of {0} found. Cleaning ...'.format(ff))
+                os.remove(ff)
 
 
-        mask = (np.abs(ifg) > 0) * (cor > self.esdCoherenceThreshold)
+        val = []
+        lineCount = 0
+        for ii in range(minBurst, maxBurst):
+            intname = os.path.join(esddir, 'overlap_IW%d_%02d.%dalks_%drlks.int'%(swath,ii+1, alks,rlks))
+            freqname = os.path.join(esddir, 'freq_IW%d_%02d.%dalks_%drlks.bin'%(swath,ii+1,alks,rlks))
+            corname = os.path.join(esddir, 'overlap_IW%d_%02d.%dalks_%drlks.cor'%(swath,ii+1, alks, rlks))
 
-        vali = off[mask]
-        val = np.hstack((val, vali))
+
+            img = isceobj.createImage()
+            img.load(intname + '.xml')
+            width = img.getWidth()
+            length = img.getLength()
+
+            ifg = np.fromfile(intname, dtype=np.complex64).reshape((-1,width))
+            freq = np.fromfile(freqname, dtype=np.float32).reshape((-1,width))
+            cor = np.fromfile(corname, dtype=np.float32).reshape((-1,width))
+
+            with open(combIntName, 'ab') as fid:
+                ifg.tofile(fid)
+
+            with open(combFreqName, 'ab') as fid:
+                freq.tofile(fid)
+
+            with open(combCorName, 'ab') as fid:
+                cor.tofile(fid)
+
+            off = (np.angle(ifg) + extraOffset) / freq
+
+            with open(combOffName, 'ab') as fid:
+                off.astype(np.float32).tofile(fid)
+
+            lineCount += length
+
+
+            mask = (np.abs(ifg) > 0) * (cor > self.esdCoherenceThreshold)
+
+            vali = off[mask]
+            val = np.hstack((val, vali))
 
     
 
-    img = isceobj.createIntImage()
-    img.filename = combIntName
-    img.setWidth(width)
-    img.setAccessMode('READ')
-    img.renderHdr()
-
-    for fname in [combFreqName, combCorName, combOffName]:
-        img = isceobj.createImage()
-        img.bands = 1
-        img.scheme = 'BIP'
-        img.dataType = 'FLOAT'
-        img.filename = fname
+        img = isceobj.createIntImage()
+        img.filename = combIntName
         img.setWidth(width)
+        img.setLength(lineCount)
         img.setAccessMode('READ')
         img.renderHdr()
+
+        for fname in [combFreqName, combCorName, combOffName]:
+            img = isceobj.createImage()
+            img.bands = 1
+            img.scheme = 'BIP'
+            img.dataType = 'FLOAT'
+            img.filename = fname
+            img.setWidth(width)
+            img.setLength(lineCount)
+            img.setAccessMode('READ')
+            img.renderHdr()
 
     if val.size == 0 :
         raise Exception('Coherence threshold too strict. No points left for reliable ESD estimate') 
@@ -107,22 +123,27 @@ def runESD(self):
     center = 0.5*(bins[:-1] + bins[1:])
 
 
-    debugplot = True
     try:
         import matplotlib as mpl
         mpl.use('Agg')
         import matplotlib.pyplot as plt
     except:
         print('Matplotlib could not be imported. Skipping debug plot...')
-        debugplot = False
+        debugPlot = False
 
-    if debugplot:
+    if debugPlot:
         ####Plotting
-        plt.figure()
-        plt.bar(center, hist, align='center', width = 0.7*(bins[1] - bins[0]))
-        plt.xlabel('Azimuth shift in pixels')
-        plt.savefig( os.path.join(esddir, 'ESDmisregistration.png'))
-        plt.close()
+        try:
+            plt.figure()
+            plt.bar(center, hist, align='center', width = 0.7*(bins[1] - bins[0]))
+            plt.xlabel('Azimuth shift in pixels')
+            plt.savefig( os.path.join(esddir, 'ESDmisregistration.png'))
+            plt.close()
+        except:
+            print('Looks like matplotlib could not save image to JPEG, continuing .....')
+            print('Install Pillow to ensure debug plots for ESD are generated.')
+            pass
+
 
 
     catalog.addItem('Median', medianval, 'esd')

@@ -5,7 +5,7 @@
 #include <string>
 using namespace std;
 
-static char * const __doc__ = "module for combined lib";
+static const char * const __doc__ = "module for combined lib";
 
 PyModuleDef moduledef = {
     PyModuleDef_HEAD_INIT,
@@ -179,7 +179,7 @@ PyObject* exportPoly2DToC(PyObject *self, PyObject *args)
     PyObject* list;
     int nx, ny;
     double val;
-    
+
     if(!PyArg_ParseTuple(args, "OOOO", &ord, &avg, &norm, &list))
     {
         return NULL;
@@ -190,7 +190,7 @@ PyObject* exportPoly2DToC(PyObject *self, PyObject *args)
         cout << "Expected 1st argument to be a list of 2 integers at " << __FILE__ << endl;
         exit(1);
     }
-    
+
     for(int i=0; i<2; i++)
     {
         PyObject* listEl = PyList_GetItem(ord, i);

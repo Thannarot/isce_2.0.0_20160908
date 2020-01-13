@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# copyright: 2013 to the present, california institute of technology.
-# all rights reserved. united states government sponsorship acknowledged.
-# any commercial use must be negotiated with the office of technology transfer
-# at the california institute of technology.
+# Copyright 2013 California Institute of Technology. ALL RIGHTS RESERVED.
 # 
-# this software may be subject to u.s. export control laws. by accepting this
-# software, the user agrees to comply with all applicable u.s. export laws and
-# regulations. user has the responsibility to obtain export licenses,  or other
-# export authority as may be required before exporting such information to
-# foreign countries or providing access to foreign persons.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 # 
-# installation and use of this software is restricted by a license agreement
-# between the licensee and the california institute of technology. it is the
-# user's responsibility to abide by the terms of the license agreement.
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+# United States Government Sponsorship acknowledged. This software is subject to
+# U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+# (No [Export] License Required except when exporting to an embargoed country,
+# end user, or in support of a prohibited end use). By downloading this software,
+# the user agrees to comply with all applicable U.S. export laws and regulations.
+# The user has the responsibility to obtain export licenses, or other export
+# authority as may be required before exporting this software to any 'EAR99'
+# embargoed foreign country or citizen of those countries.
 #
 # Author: Piyush Agram
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -53,7 +61,8 @@ fnDict = { 'cos':       np.cos,
            'imag' :     np.imag,
            'rad':       np.radians,
            'deg':       np.degrees,
-           'sqrt':      np.sqrt
+           'sqrt':      np.sqrt,
+           'mod' :      np.mod
          }
 
 #######Current list of constants
@@ -332,6 +341,59 @@ class memmap(object):
         self.bands[0].base.base.flush()
 
 
+class memmapGDAL(object):
+    '''
+    Create a memmap like object from GDAL.
+    '''
+
+    from osgeo import gdal
+
+    class BandWrapper:
+        '''
+        Wrap a GDAL band in a numpy like slicable object.
+        '''
+
+        def __init__(self, dataset, band):
+            '''
+            Init from a GDAL raster band.
+            '''
+
+            self.data = dataset.GetRasterBand(band)
+            self.width = dataset.RasterXSize
+            self.length = data.RasterYSize
+
+        def __getitem__(self, *args):
+            
+            xmin = max(int(args[0][1].start),0)
+            xmax = min(int(args[0][1].stop)+xmin, self.width) - xmin
+            ymin = max(int(args[0][0].start),0)
+            ymax = min(int(args[0][1].stop)+ymin, self.length) - ymin
+
+            res = self.data.ReadAsArray(xmin, ymin, xmax,ymax)
+            return res
+
+        def __del__(self):
+            self.data = None
+
+
+    def __init__(self, fname):
+        '''
+        Constructor.
+        '''
+        
+        self.name = fname
+        self.data = gdal.Open(self.name, gdal.GA_ReadOnly)
+        self.width = self.data.RasterXSize
+        self.length = self.data.RasterYSize
+
+        self.bands = []
+        for ii in range(self.data.RasterCount):
+            self.bands.append( BandWrapper(self.data, ii+1))
+
+    def __del__(self):
+        self.data = None
+
+
 def loadImage(fname):
     '''
     Load into appropriate image object.
@@ -367,12 +429,51 @@ def loadImage(fname):
     return img, dataName, metaName
 
 
-def mmapFromISCE(fname, logger):
+def loadGDALImage(fname):
+    '''
+    Similar to loadImage but only returns metadata.
+    '''
+
+    from osgeo import gdal
+
+    class Dummy(object):
+        pass
+
+
+    ds = gdal.Open(fname, gdal.GA_ReadOnly)
+    drv = ds.GetDriver()
+    bnd = ds.GetRasterBand(1)
+
+    img = Dummy()
+    img.bands = ds.RasterCount 
+    img.width = ds.RasterXSize
+    img.length = ds.RasterYSize
+    img.scheme = drv.GetDescription()
+    img.dataType = gdal.GetDataTypeByName(bnd.DataType)
+
+    bnd = None
+    drv = None
+    ds = None
+
+    return img
+
+def mmapFromISCE(fname, logger=None):
     '''
     Create a file mmap object using information in an ISCE XML.
     '''
-    img, dataName, metaName = loadImage(fname)
-    logger.debug('Creating readonly ISCE mmap with \n' +
+    try:
+        img, dataName, metaName = loadImage(fname)
+        isceFile = True
+    except:
+        try:
+            img = loadGDALImage(fname)
+            isceFile=False
+            dataName = fname
+        except:
+            raise Exception('Input file: {0} should either be an ISCE image / GDAL image. Appears to be neither')
+
+    if logger is not None:
+        logger.debug('Creating readonly ISCE mmap with \n' +
             'file = %s \n'%(dataName) + 
             'bands = %d \n'%(img.bands) + 
             'width = %d \n'%(img.width) + 
@@ -380,10 +481,12 @@ def mmapFromISCE(fname, logger):
             'scheme = %s \n'%(img.scheme) +
             'dtype = %s \n'%(img.dataType))
 
-    mObj = memmap(dataName, nchannels=img.bands,
+    if isceFile:
+        mObj = memmap(dataName, nchannels=img.bands,
             nxx=img.width, nyy=img.length, scheme=img.scheme,
             dataType=NUMPY_type(img.dataType))
-
+    else:
+        mObj = memmapGDAL(dataName)
 
     return mObj
 

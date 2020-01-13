@@ -39,4 +39,4 @@ protected:
   cPoly2d * poly;
 };
 
-#endif Poly2dInterpolator_h
+#endif //Poly2dInterpolator_h

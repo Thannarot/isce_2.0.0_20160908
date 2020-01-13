@@ -13,11 +13,18 @@ import os
 import copy
 from isceobj.Sensor.TOPS import createTOPSSwathSLCProduct
 from mroipac.correlation.correlation import Correlation
-from isceobj.Util.decorators import use_api
 
-@use_api
+def loadVirtualArray(fname):
+    from osgeo import gdal
+
+    ds = gdal.Open(fname, gdal.GA_ReadOnly)
+    data = ds.GetRasterBand(1).ReadAsArray()
+
+    ds = None
+    return data
+
 def multiply(masname, slvname, outname, rngname, fact, masterFrame,
-        flatten=True, alks=3, rlks=7):
+        flatten=True, alks=3, rlks=7, virtual=True):
 
 
     masImg = isceobj.createSlcImage()
@@ -26,7 +33,12 @@ def multiply(masname, slvname, outname, rngname, fact, masterFrame,
     width = masImg.getWidth()
     length = masImg.getLength()
 
-    master = np.memmap(masname, dtype=np.complex64, mode='r', shape=(length,width))
+
+    if not virtual:
+        master = np.memmap(masname, dtype=np.complex64, mode='r', shape=(length,width))
+    else:
+        master = loadVirtualArray(masname + '.vrt')
+    
     slave = np.memmap(slvname, dtype=np.complex64, mode='r', shape=(length, width))
    
     if os.path.exists(rngname):
@@ -57,21 +69,41 @@ def multiply(masname, slvname, outname, rngname, fact, masterFrame,
     objInt = isceobj.createIntImage()
     objInt.setFilename(outname)
     objInt.setWidth(width)
+    objInt.setLength(length)
     objInt.setAccessMode('READ')
-    objInt.createImage()
-    objInt.finalizeImage()
     objInt.renderHdr()
 
-    cmd = 'looks.py -i {0} -a {1} -r {2}'.format(outname, alks, rlks)
-    flag = os.system(cmd)
 
-    if flag:
-        raise Exception('Failed to multilook ifgs')
+    try:
+        takeLooks(objInt, alks, rlks)
+    except:
+        raise Exception('Failed to multilook ifg: {0}'.format(objInt.filename))
 
     return objInt
 
-@use_api
-def computeCoherence(slc1name, slc2name, corname):
+
+def takeLooks(inimg, alks, rlks):
+    '''
+    Take looks.
+    '''
+
+    from mroipac.looks.Looks import Looks
+
+    spl = os.path.splitext(inimg.filename)
+    ext = '.{0}alks_{1}rlks'.format(alks, rlks)
+    outfile = spl[0] + ext + spl[1]
+
+
+    lkObj = Looks()
+    lkObj.setDownLooks(alks)
+    lkObj.setAcrossLooks(rlks)
+    lkObj.setInputImage(inimg)
+    lkObj.setOutputFilename(outfile)
+    lkObj.looks()
+
+    return outfile
+
+def computeCoherence(slc1name, slc2name, corname, virtual=True):
                           
     slc1 = isceobj.createImage()
     slc1.load( slc1name + '.xml')
@@ -122,54 +154,71 @@ def runBurstIfg(self):
     '''Create burst interferograms.
     '''
 
-    minBurst, maxBurst = self._insar.commonMasterBurstLimits
-    nBurst = maxBurst - minBurst
+    virtual = self.useVirtualFiles
 
+    swathList = self._insar.getValidSwathList(self.swaths)
+
+
+    for swath in swathList:
+
+        minBurst, maxBurst = self._insar.commonMasterBurstLimits(swath-1)
+        nBurst = maxBurst - minBurst
+
+        if nBurst == 0:
+            continue
     
-    ifgdir = self._insar.fineIfgDirname
-    if not os.path.exists(ifgdir):
-        os.makedirs(ifgdir)
+        ifgdir = os.path.join(self._insar.fineIfgDirname, 'IW{0}'.format(swath))
+        if not os.path.exists(ifgdir):
+            os.makedirs(ifgdir)
 
-    ####Load relevant products
-    master = self._insar.loadProduct( self._insar.masterSlcProduct + '.xml' )
-    slave = self._insar.loadProduct( self._insar.fineCoregDirname + '.xml')
+        ####Load relevant products
+        master = self._insar.loadProduct( os.path.join(self._insar.masterSlcProduct, 'IW{0}.xml'.format(swath)))
+        slave = self._insar.loadProduct( os.path.join(self._insar.fineCoregDirname, 'IW{0}.xml'.format(swath)))
 
-    coregdir = self._insar.fineOffsetsDirname
+        coregdir = os.path.join(self._insar.fineOffsetsDirname, 'IW{0}'.format(swath))
 
-    fineIfg =  createTOPSSwathSLCProduct()
-    fineIfg.configure()
+        fineIfg =  createTOPSSwathSLCProduct()
+        fineIfg.configure()
 
-    for ii in range(minBurst, maxBurst):
+        for ii in range(minBurst, maxBurst):
+    
+            jj = ii - minBurst
 
-        jj = ii - minBurst
 
+            ####Process the top bursts
+            masBurst = master.bursts[ii] 
+            slvBurst = slave.bursts[jj]
 
-        ####Process the top bursts
-        masBurst = master.bursts[ii] 
-        slvBurst = slave.bursts[jj]
-
-        mastername = masBurst.image.filename
-        slavename = slvBurst.image.filename
-        rdict = {'rangeOff' : os.path.join(coregdir, 'range_%02d.off'%(ii+1)),
-                 'azimuthOff': os.path.join(coregdir, 'azimuth_%02d.off'%(ii+1))}
+            mastername = masBurst.image.filename
+            slavename = slvBurst.image.filename
+            rdict = {'rangeOff' : os.path.join(coregdir, 'range_%02d.off'%(ii+1)),
+                     'azimuthOff': os.path.join(coregdir, 'azimuth_%02d.off'%(ii+1))}
             
             
-        adjustValidLineSample(masBurst,slvBurst)
-        
-        intname = os.path.join(ifgdir, '%s_%02d.int'%('burst',ii+1))
-        fact = 4 * np.pi * slvBurst.rangePixelSize / slvBurst.radarWavelength
-        intimage = multiply(mastername, slavename, intname,
-                    rdict['rangeOff'], fact, masBurst, flatten=True,
-                    alks = self.numberAzimuthLooks, rlks=self.numberRangeLooks)
+            adjustValidLineSample(masBurst,slvBurst)
+       
+           
+            if self.doInSAR:
+                intname = os.path.join(ifgdir, '%s_%02d.int'%('burst',ii+1))
+                fact = 4 * np.pi * slvBurst.rangePixelSize / slvBurst.radarWavelength
+                intimage = multiply(mastername, slavename, intname,
+                        rdict['rangeOff'], fact, masBurst, flatten=True,
+                        alks = self.numberAzimuthLooks, rlks=self.numberRangeLooks,
+                        virtual=virtual)
 
-        burst = copy.deepcopy(masBurst)
-        burst.image = intimage
-        fineIfg.bursts.append(burst)
+            burst = masBurst.clone()
 
-        ####Estimate coherence
-        corname =  os.path.join(ifgdir, '%s_%02d.cor'%('burst',ii+1))
-        computeCoherence(mastername, slavename, corname) 
+            if self.doInSAR:
+                burst.image = intimage
+
+            fineIfg.bursts.append(burst)
 
 
-    fineIfg.numberOfBursts = len(fineIfg.bursts)
-    self._insar.saveProduct(fineIfg, self._insar.fineIfgDirname + '.xml')
+            if self.doInSAR:
+                ####Estimate coherence
+                corname =  os.path.join(ifgdir, '%s_%02d.cor'%('burst',ii+1))
+                computeCoherence(mastername, slavename, corname) 
+
+
+        fineIfg.numberOfBursts = len(fineIfg.bursts)
+        self._insar.saveProduct(fineIfg, os.path.join(self._insar.fineIfgDirname, 'IW{0}.xml'.format(swath)))

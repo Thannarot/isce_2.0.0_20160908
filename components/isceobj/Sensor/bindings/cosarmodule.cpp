@@ -3,7 +3,7 @@
 
 using namespace std;
 
-static char* const __doc__ = "Python extension for cosar";
+static const char* const __doc__ = "Python extension for cosar";
 
 PyModuleDef moduledef = {
     PyModuleDef_HEAD_INIT,
@@ -28,14 +28,14 @@ PyInit_cosar()
 
 PyObject *cosar_C(PyObject *self,PyObject *args)
 {
-	char *input,*output;
-	Cosar *cosar;
-	if(!PyArg_ParseTuple(args,"ss",&input,&output))
-	{
-		return NULL;
-	}
-	cosar = new Cosar(input,output);
-	cosar->parse();
+        char *input,*output;
+        Cosar *cosar;
+        if(!PyArg_ParseTuple(args,"ss",&input,&output))
+        {
+                return NULL;
+        }
+        cosar = new Cosar(input,output);
+        cosar->parse();
 
-	return Py_BuildValue("i",0);
+        return Py_BuildValue("i",0);
 }

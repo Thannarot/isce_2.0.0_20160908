@@ -3,7 +3,6 @@
 # Copyright 2016
 #
 
-from scipy.ndimage.filters import median_filter
 import numpy as np
 import isce
 import isceobj
@@ -16,25 +15,41 @@ def runOffsetFilter(self):
     '''
     Filter the resulting offset field images.
     '''
-    offsetfile = os.path.join(self._insar.mergedDirname, self.offsetfile) + '.bil'
-    snrfile = os.path.join(self._insar.mergedDirname, self.offsetfile) + '_snr.bil'
+
+    if not self.doDenseOffsets:
+        return
+
+    from scipy.ndimage.filters import median_filter
+
+    offsetfile = os.path.join(self._insar.mergedDirname, self._insar.offsetfile) 
+    snrfile = os.path.join(self._insar.mergedDirname, self._insar.snrfile)
     print('\n======================================')
     print('Filtering dense offset field image...')
-    print('Offset field filename: %s\n' % (self.offsetfile + '.bil'))
+    print('Offset field filename: %s\n' % (self._insar.offsetfile ))
     
     ### Open images as numpy arrays (easier to mask/filter)
-    with open(offsetfile) as fid:
-        offsetArr = np.fromfile(fid,dtype='float32').reshape(2*self.offset_length,self.offset_width)
-    downOffsets = offsetArr[0::2,:].flatten()
-    acrossOffsets = offsetArr[1::2,:].flatten()
+    if offsetfile.endswith('.bip'):
+        with open(offsetfile) as fid:
+            offsetArr = np.fromfile(fid,dtype='float32').reshape(self._insar.offset_length, self._insar.offset_width * 2)
+            
+        downOffsets = offsetArr[:,0::2].flatten()
+        acrossOffsets = offsetArr[:,1::2].flatten()
+
+    else:
+        with open(offsetfile) as fid:
+            offsetArr = np.fromfile(fid,dtype='float32').reshape(2*self._insar.offset_length,self._insar.offset_width)
+
+        downOffsets = offsetArr[0::2,:].flatten()
+        acrossOffsets = offsetArr[1::2,:].flatten()
+
     del offsetArr   ### Save virtual space
 
     with open(snrfile) as fid:
-        snr = np.fromfile(fid,dtype='float32')[:self.offset_length*self.offset_width]
+        snr = np.fromfile(fid,dtype='float32')[:self._insar.offset_length*self._insar.offset_width]
 
     ### Filter out bad SNR elements (determined by user-configured threshold)
-    if self.snr_thresh is not None:
-        snrBad = snr < self.snr_thresh
+    if self.dense_offset_snr_thresh is not None:
+        snrBad = snr < self.dense_offset_snr_thresh
         acrossOffsets[snrBad] = self.filt_null
         downOffsets[snrBad] = self.filt_null
     del snr     ### Don't need it again, save the space!
@@ -46,8 +61,8 @@ def runOffsetFilter(self):
     self.filt_size = window
 
     ### Reshape the offsets back into their original form (they were flattened above)
-    downOffsets = downOffsets.reshape(-1,self.offset_width)
-    acrossOffsets = acrossOffsets.reshape(-1,self.offset_width)
+    downOffsets = downOffsets.reshape(-1,self._insar.offset_width)
+    acrossOffsets = acrossOffsets.reshape(-1,self._insar.offset_width)
 
     ### Avoid NaNs getting "smeared" by the median_filter (only happens if user converted NULL values
     ### in offset images to be np.nan)
@@ -74,16 +89,16 @@ def runOffsetFilter(self):
     ### Write the offsets to the .bil file
     ### Channel 1: Azimuth offsets
     ### Channel 2: Range offsets
-    filt_offsetfile = os.path.join(self._insar.mergedDirname, self.filt_offsetfile) + '.bil'
+    filt_offsetfile = os.path.join(self._insar.mergedDirname, self._insar.filt_offsetfile)
     filtImg = isceobj.createImage()
     filtImg.bands = 2
     filtImg.scheme = 'BIL'
     filtImg.dataType = 'FLOAT'
-    filtImg.setWidth(self.offset_width)
-    filtImg.setLength(self.offset_length)
+    filtImg.setWidth(self._insar.offset_width)
+    filtImg.setLength(self._insar.offset_length)
     filtImg.setFilename(filt_offsetfile)
     with open(filt_offsetfile,'wb') as fid:
-        for i in range(self.offset_length):
+        for i in range(self._insar.offset_length):
             downOffsets[i].astype(np.float32).tofile(fid)
             acrossOffsets[i].astype(np.float32).tofile(fid)
             #start = i * self.offset_width

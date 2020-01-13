@@ -18,12 +18,12 @@
 extern "C"
 {
 
-	//name of the C function called when fortranSrc.testImageSetGet() is invoked in python.
-	PyObject * testImageSetGet_C(PyObject *, PyObject *);
-	
-	
-	//name used form C++ to call the testImageSegGet subroutine in fortran
-	void testImageSetGet_f(uint64_t *, uint64_t *, int *);
+        //name of the C function called when fortranSrc.testImageSetGet() is invoked in python.
+        PyObject * testImageSetGet_C(PyObject *, PyObject *);
+
+
+        //name used form C++ to call the testImageSegGet subroutine in fortran
+        void testImageSetGet_f(uint64_t *, uint64_t *, int *);
 }
 
 
@@ -31,8 +31,8 @@ static char * moduleDoc = "test module to interface pyhton with the LineAccessor
 
 static PyMethodDef fortranSrc_methods[] =
 {
-	// when the python call fortranSrc.testImageSetGet() is made, the funtion testImageSetGet_C() is invoked
-	{"testImageSetGet", testImageSetGet_C, METH_VARARGS, " "},
-	{NULL, NULL, 0, NULL}
+        // when the python call fortranSrc.testImageSetGet() is made, the funtion testImageSetGet_C() is invoked
+        {"testImageSetGet", testImageSetGet_C, METH_VARARGS, " "},
+        {NULL, NULL, 0, NULL}
 };
-#endif fortranSrcmodule_h
+#endif //fortranSrcmodule_h

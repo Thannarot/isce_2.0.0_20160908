@@ -24,9 +24,6 @@ listFiles = ['__init__.py','BurstSLC.py','TOPSSwathSLCProduct.py','TOPSSLCProduc
 
 helpList,installHelp = envTOPS['HELP_BUILDER'](envTOPS,'__init__.py',install)
 
-print(helpList)
-print(installHelp)
-
 envTOPS.Install(installHelp,helpList)
 envTOPS.Alias('install',installHelp)
 

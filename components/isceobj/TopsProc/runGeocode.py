@@ -22,55 +22,79 @@ def runGeocode(self, prodlist, unwrapflag, bbox, is_offset_mode=False):
     logger.info("Geocoding Image")
     insar = self._insar
 
+    if (not self.doInSAR) and (not is_offset_mode):
+        print('Skipping geocoding as InSAR processing has not been requested ....')
+        return
+
+    elif (not self.doDenseOffsets) and (is_offset_mode):
+        print('Skipping geocoding as Dense Offsets has not been requested ....')
+        return
+
+
     if isinstance(prodlist,str):
         from isceobj.Util.StringUtils import StringUtils as SU
         tobeGeocoded = SU.listify(prodlist)
     else:
         tobeGeocoded = prodlist
 
+    
     #remove files that have not been processed
+    newlist=[]
     for toGeo in tobeGeocoded:
-        if not os.path.exists(toGeo):
-            tobeGeocoded.remove(toGeo)
+        if os.path.exists(toGeo):
+            newlist.append(toGeo)
+
+    
+    tobeGeocoded = newlist
     print('Number of products to geocode: ', len(tobeGeocoded))
 
-    referenceProduct = insar.loadProduct( insar.fineCoregDirname + '.xml')
+    if len(tobeGeocoded) == 0:
+        print('No products found to geocode')
+        return
 
-    ###Create merged orbit
-    orb = Orbit()
-    orb.configure()
 
-    burst = referenceProduct.bursts[0]
-    #Add first burst orbit to begin with
-    for sv in burst.orbit:
-         orb.addStateVector(sv)
+    swathList = self._insar.getValidSwathList(self.swaths)
 
-    ##Add all state vectors
-    for bb in referenceProduct.bursts:
-        for sv in bb.orbit:
-            if (sv.time< orb.minTime) or (sv.time > orb.maxTime):
-                orb.addStateVector(sv)
+    frames = []
+    for swath in swathList:
+        referenceProduct = insar.loadProduct( os.path.join(insar.fineCoregDirname, 'IW{0}.xml'.format(swath)))
+        frames.append(referenceProduct)
 
-        bb.orbit = orb
+    orb = self._insar.getMergedOrbit(frames)
 
     if bbox is None:
-        snwe = referenceProduct.getBbox()
+        bboxes = []
+
+        for frame in frames:
+            bboxes.append(frame.getBbox())
+
+        snwe = [min([x[0] for x in bboxes]),
+                max([x[1] for x in bboxes]),
+                min([x[2] for x in bboxes]),
+                max([x[3] for x in bboxes])]
+
     else:
         snwe = list(bbox)
         if len(snwe) != 4:
             raise ValueError('Bounding box should be a list/tuple of length 4')
 
 
+    ###Identify the 4 corners and dimensions
+    topSwath = min(frames, key = lambda x: x.sensingStart)
+    leftSwath = min(frames, key = lambda x: x.startingRange)
+
+
     ####Get required values from product
-    t0 = burst.sensingStart
+    burst = frames[0].bursts[0]
+    t0 = topSwath.sensingStart
     dtaz = burst.azimuthTimeInterval
-    r0 = burst.startingRange
+    r0 = leftSwath.startingRange
     dr = burst.rangePixelSize
     wvl = burst.radarWavelength
     planet = Planet(pname='Earth')
     
     ###Setup DEM
-    demfilename = self.verifyDEM()
+    demfilename = self.verifyGeocodeDEM()
     demImage = isceobj.createDemImage()
     demImage.load(demfilename + '.xml')
 
@@ -110,8 +134,8 @@ def runGeocode(self, prodlist, unwrapflag, bbox, is_offset_mode=False):
         objGeo.radarWavelength = wvl
 
         if is_offset_mode:  ### If using topsOffsetApp, as above, the "pre-looking" adjusts the range/time start
-            objGeo.rangeFirstSample = r0 + (self.offset_left-1) * dr
-            objGeo.setSensingStart( t0 + datetime.timedelta(seconds=((self.offset_top-1)*dtaz)))
+            objGeo.rangeFirstSample = r0 + (self._insar.offset_left-1) * dr
+            objGeo.setSensingStart( t0 + datetime.timedelta(seconds=((self._insar.offset_top-1)*dtaz)))
         else:
             objGeo.rangeFirstSample = r0 + ((self.numberRangeLooks-1)/2.0) * dr
             objGeo.setSensingStart( t0 + datetime.timedelta(seconds=(((self.numberAzimuthLooks-1)/2.0)*dtaz)))

@@ -9,6 +9,9 @@ from contrib.Snaphu.Snaphu import Snaphu
 from isceobj.Constants import SPEED_OF_LIGHT
 from isceobj.Planet.Planet import Planet
 import os
+import numpy as np
+from isceobj.TopsProc.runIon import maskUnwrap
+
 
 def runUnwrap(self,costMode = None,initMethod = None, defomax = None, initOnly = None):
 
@@ -32,30 +35,38 @@ def runUnwrap(self,costMode = None,initMethod = None, defomax = None, initOnly =
     img.load(wrapName + '.xml')
 
 
-    ifg = self._insar.loadProduct( self._insar.fineIfgDirname + '.xml')
+    swathList = self._insar.getValidSwathList(self.swaths)
+
+    for swath in swathList[0:1]:
+        ifg = self._insar.loadProduct( os.path.join(self._insar.fineIfgDirname, 'IW{0}.xml'.format(swath)))
 
 
-    wavelength = ifg.bursts[0].radarWavelength
-    width      = img.getWidth()
+        wavelength = ifg.bursts[0].radarWavelength
+        width      = img.getWidth()
 
 
-    ####tmid 
-    tstart = ifg.bursts[0].sensingStart
-    tend   = ifg.bursts[-1].sensingStop
-    tmid = tstart + 0.5*(tend - tstart) 
+        ####tmid 
+        tstart = ifg.bursts[0].sensingStart
+        tend   = ifg.bursts[-1].sensingStop
+        tmid = tstart + 0.5*(tend - tstart) 
 
-    orbit = ifg.bursts[0].orbit
-    peg = orbit.interpolateOrbit(tmid, method='hermite')
+        #some times tmid may exceed the time span, so use mid burst instead
+        #14-APR-2018, Cunren Liang
+        #orbit = ifg.bursts[0].orbit
+        burst_index = np.int(np.around(len(ifg.bursts)/2))
+        orbit = ifg.bursts[burst_index].orbit
+        peg = orbit.interpolateOrbit(tmid, method='hermite')
 
 
-    refElp = Planet(pname='Earth').ellipsoid
-    llh = refElp.xyz_to_llh(peg.getPosition())
-    hdg = orbit.getENUHeading(tmid)
-    refElp.setSCH(llh[0], llh[1], hdg)
+        refElp = Planet(pname='Earth').ellipsoid
+        llh = refElp.xyz_to_llh(peg.getPosition())
+        hdg = orbit.getENUHeading(tmid)
+        refElp.setSCH(llh[0], llh[1], hdg)
 
-    earthRadius = refElp.pegRadCur
+        earthRadius = refElp.pegRadCur
 
-    altitude   = llh[2]
+        altitude   = llh[2]
+
     corrfile  = os.path.join(self._insar.mergedDirname, self._insar.coherenceFilename)
     rangeLooks = self.numberRangeLooks
     azimuthLooks = self.numberAzimuthLooks
@@ -110,7 +121,13 @@ def runUnwrap(self,costMode = None,initMethod = None, defomax = None, initOnly =
         connImage.finalizeImage()
         connImage.renderHdr()
 
+        #mask the areas where values are zero.
+        #15-APR-2018, Cunren Liang
+        maskUnwrap(unwrapName, wrapName)
+
     return
+
+
 def runUnwrapMcf(self):
     runUnwrap(self,costMode = 'SMOOTH',initMethod = 'MCF', defomax = 2, initOnly = True)
     return

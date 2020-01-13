@@ -1,18 +1,26 @@
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// copyright: 2010 to the present, california institute of technology.
-// all rights reserved. united states government sponsorship acknowledged.
-// any commercial use must be negotiated with the office of technology transfer
-// at the california institute of technology.
+// Copyright 2010 California Institute of Technology. ALL RIGHTS RESERVED.
 // 
-// this software may be subject to u.s. export control laws. by accepting this
-// software, the user agrees to comply with all applicable u.s. export laws and
-// regulations. user has the responsibility to obtain export licenses,  or other
-// export authority as may be required before exporting such information to
-// foreign countries or providing access to foreign persons.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 // 
-// installation and use of this software is restricted by a license agreement
-// between the licensee and the california institute of technology. it is the
-// user's responsibility to abide by the terms of the license agreement.
+// http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// 
+// United States Government Sponsorship acknowledged. This software is subject to
+// U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+// (No [Export] License Required except when exporting to an embargoed country,
+// end user, or in support of a prohibited end use). By downloading this software,
+// the user agrees to comply with all applicable U.S. export laws and regulations.
+// The user has the responsibility to obtain export licenses, or other export
+// authority as may be required before exporting this software to any 'EAR99'
+// embargoed foreign country or citizen of those countries.
 //
 // Author: Giangi Sacco
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -31,7 +39,7 @@
 #include <vector>
 using namespace std;
 
-static char * const __doc__ = "module for readOrbitPulse";
+static const char * const __doc__ = "module for readOrbitPulse";
 
 PyModuleDef moduledef = {
     // header
@@ -64,35 +72,35 @@ PyInit_readOrbitPulse()
 }
 
 
-PyObject * readOrbitPulse_C(PyObject* self, PyObject* args) 
+PyObject * readOrbitPulse_C(PyObject* self, PyObject* args)
 {
-	uint64_t var0;
-	uint64_t var1;
-	uint64_t var2;
-	if(!PyArg_ParseTuple(args, "KKK",&var0,&var1,&var2)) 
-	{
-		return NULL;  
-	}  
-	readOrbitPulse_f(&var0,&var1,&var2);
-	return Py_BuildValue("i", 0);
+        uint64_t var0;
+        uint64_t var1;
+        uint64_t var2;
+        if(!PyArg_ParseTuple(args, "KKK",&var0,&var1,&var2))
+        {
+                return NULL;
+        }
+        readOrbitPulse_f(&var0,&var1,&var2);
+        return Py_BuildValue("i", 0);
 }
-PyObject * setNumberBitesPerLine_C(PyObject* self, PyObject* args) 
+PyObject * setNumberBitesPerLine_C(PyObject* self, PyObject* args)
 {
-	int var;
-	if(!PyArg_ParseTuple(args, "i", &var)) 
-	{
-		return NULL;  
-	}  
-	setNumberBitesPerLine_f(&var);
-	return Py_BuildValue("i", 0);
+        int var;
+        if(!PyArg_ParseTuple(args, "i", &var))
+        {
+                return NULL;
+        }
+        setNumberBitesPerLine_f(&var);
+        return Py_BuildValue("i", 0);
 }
-PyObject * setNumberLines_C(PyObject* self, PyObject* args) 
+PyObject * setNumberLines_C(PyObject* self, PyObject* args)
 {
-	int var;
-	if(!PyArg_ParseTuple(args, "i", &var)) 
-	{
-		return NULL;  
-	}  
-	setNumberLines_f(&var);
-	return Py_BuildValue("i", 0);
+        int var;
+        if(!PyArg_ParseTuple(args, "i", &var))
+        {
+                return NULL;
+        }
+        setNumberLines_f(&var);
+        return Py_BuildValue("i", 0);
 }

@@ -51,6 +51,8 @@ def createUnwrapper(other, do_unwrap = None, unwrapperName = None,
         from .runUnwrapSnaphu import runUnwrap
     elif unwrapperName.lower() == 'snaphu_mcf':
         from .runUnwrapSnaphu import runUnwrapMcf as runUnwrap
+    elif unwrapperName.lower() == 'downsample_snaphu':
+        from .run_downsample_unwrapper import runUnwrap
     elif unwrapperName.lower() == 'icu':
         from .runUnwrapIcu import runUnwrap
     elif unwrapperName.lower() == 'grass':
@@ -74,6 +76,7 @@ def createUnwrap2Stage(other, do_unwrap_2stage = None, unwrapperName = None):
 createPreprocessor = _factory("runPreprocessor")
 createComputeBaseline = _factory("runComputeBaseline")
 createVerifyDEM = _factory("runVerifyDEM")
+createVerifyGeocodeDEM = _factory("runVerifyGeocodeDEM")
 createTopo = _factory("runTopo")
 createSubsetOverlaps = _factory("runSubsetOverlaps")
 createCoarseOffsets = _factory("runCoarseOffsets")
@@ -84,6 +87,7 @@ createESD = _factory("runESD")
 createRangeCoreg = _factory("runRangeCoreg")
 createFineOffsets = _factory("runFineOffsets")
 createFineResamp = _factory("runFineResamp")
+createIon = _factory("runIon")
 createBurstIfg = _factory("runBurstIfg")
 createMergeBursts = _factory("runMergeBursts")
 createFilter = _factory("runFilter")

@@ -24,6 +24,14 @@ src = os.path.join(envCombLib['PRJ_SCONS_BUILD'], package,  project,  '/src')
 envCombLib['SUBSRCLIST'] = []
 envCombLib['SUBINCLIST'] = []
 
+# Patch to protect from build errors of conflicting with library/isceLib
+old_cpppath = envCombLib['CPPPATH']
+new_cpppath = []
+for path in old_cpppath:
+    if (path != os.path.join(envCombLib['PRJ_SCONS_BUILD'],'library','isceLib','include')):
+        new_cpppath.append(path)
+envCombLib['CPPPATH'] = new_cpppath
+
 Export('envCombLib')
 
 ####Include sub dirs here

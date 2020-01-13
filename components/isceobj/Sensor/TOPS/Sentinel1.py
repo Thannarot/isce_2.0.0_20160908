@@ -1,23 +1,35 @@
 #!/usr/bin/env python3 
 
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# copyright: 2014 to the present, california institute of technology.
-# all rights reserved. united states government sponsorship acknowledged.
-# any commercial use must be negotiated with the office of technology transfer
-# at the california institute of technology.
+# Copyright 2014 California Institute of Technology. ALL RIGHTS RESERVED.
 # 
-# this software may be subject to u.s. export control laws. by accepting this
-# software, the user agrees to comply with all applicable u.s. export laws and
-# regulations. user has the responsibility to obtain export licenses,  or other
-# export authority as may be required before exporting such information to
-# foreign countries or providing access to foreign persons.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 # 
-# installation and use of this software is restricted by a license agreement
-# between the licensee and the california institute of technology. it is the
-# user's responsibility to abide by the terms of the license agreement.
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+# United States Government Sponsorship acknowledged. This software is subject to
+# U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+# (No [Export] License Required except when exporting to an embargoed country,
+# end user, or in support of a prohibited end use). By downloading this software,
+# the user agrees to comply with all applicable U.S. export laws and regulations.
+# The user has the responsibility to obtain export licenses, or other export
+# authority as may be required before exporting this software to any 'EAR99'
+# embargoed foreign country or citizen of those countries.
 #
 # Author: Piyush Agram
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
 
 
 
@@ -28,7 +40,6 @@ from .BurstSLC import BurstSLC
 from isceobj.Util import Poly1D, Poly2D
 from isceobj.Planet.Planet import Planet
 from isceobj.Orbit.Orbit import StateVector, Orbit
-from isceobj.Orbit.OrbitExtender import OrbitExtender
 from isceobj.Planet.AstronomicalHandbook import Const
 from iscesys.Component.Component import Component
 from iscesys.Component.ProductManager import ProductManager
@@ -54,7 +65,8 @@ TIFF_LIST = Component.Parameter('tiff',
 
 MANIFEST = Component.Parameter('manifest',
         public_name = 'manifest',
-        default = None,
+        default = [],
+        container = list,
         type = str,
         doc = 'Manifest file with IPF version')
 
@@ -152,6 +164,8 @@ class Sentinel1(Component):
     def __init__(self, name=''):
         super().__init__(family=self.__class__.family, name=name) 
 
+        ####Number of swaths
+        self.maxSwaths = 3
 
         ###Variables never meant to be controlled by user
         self._xml_root=None
@@ -234,7 +248,6 @@ class Sentinel1(Component):
         if (len(self.tiff) == 0) and (len(self.safe) != 0 ):
             for dirname in self.safe:
                 match = None
-
                 if dirname.endswith('.zip'):
                     pattern = os.path.join('*SAFE','measurement', swathid) + '-slc-' + polid + '*.tiff'
                     zf = zipfile.ZipFile(dirname, 'r')
@@ -267,19 +280,17 @@ class Sentinel1(Component):
 
         ####Find manifest files
         if len(self.safe) != 0:
-            manifests = []
             for dirname in self.safe:
                 if dirname.endswith('.zip'):
                     pattern='*SAFE/manifest.safe'
                     zf = zipfile.ZipFile(dirname, 'r')
                     match = fnmatch.filter(zf.namelist(), pattern)
                     zf.close()
-                    manifests.append('/vsizip/' + os.path.join(dirname, match[0]))
+                    self.manifest.append('/vsizip/' + os.path.join(dirname, match[0]))
                 else:
-                    manifests.append(os.path.join(dirname, 'manifest.safe'))
+                    self.manifest.append(os.path.join(dirname, 'manifest.safe'))
     
-            print('Manifest files: ', manifests)
-            self.manifest = manifests[0]
+            print('Manifest files: ', self.manifest)
 
 
         ####Check bbox
@@ -350,7 +361,7 @@ class Sentinel1(Component):
         self.product.numberOfBursts = numberBursts
 
         ####Populate processing software info
-        if self.manifest is not None:
+        if len(self.manifest) != 0:
             self.populateIPFVersion()
 
         ####Populate common metadata
@@ -417,7 +428,7 @@ class Sentinel1(Component):
             ####Populate all the fields for reader
             aslice.xml = [self.xml[kk]]
             aslice.tiff = [self.tiff[kk]]
-            aslice.manifest = self.manifest
+            aslice.manifest = [self.manifest[kk]]
             aslice.output = self.output
             aslice.orbitFile = self.orbitFile
             aslice.orbitDir = self.orbitDir
@@ -439,17 +450,6 @@ class Sentinel1(Component):
         if self._numSlices == 0 :
             raise Exception('There is no imagery to extract. Check region of interest and inputs.')
 
-
-        ####Estimate burstinterval
-        reft0 = slices[0].product.bursts[0].sensingStart
-        if len(slices[0].product.bursts) > 1:
-            burstStartInterval = slices[0].product.bursts[1].sensingStart - reft0
-        elif len(slices) > 1:
-            burstStartInterval = slices[1].product.bursts[0].sensingStart - reft0
-        else:
-            raise Exception('Atleast 2 bursts must be present in the cropped region for TOPS processing.')
-
-
         self.burstWidth = max(burstWidths)
         self.burstLength = max(burstLengths)
         
@@ -468,13 +468,29 @@ class Sentinel1(Component):
 
         ####Start with the first slice
         firstSlice = slices[indices[0]]
-        
-        t0 = firstSlice.product.bursts[0].sensingStart
+
+        ####Estimate burstinterval
+        t0 = firstSlice.product.bursts[0].burstStartUTC
+        if len(firstSlice.product.bursts) > 1:
+            burstStartInterval = firstSlice.product.bursts[1].burstStartUTC - t0
+        elif len(slices) > 1:
+            burstStartInterval = slices[indices[1]].product.bursts[0].burstStartUTC - t0
+        else:
+            raise Exception('Atleast 2 bursts must be present in the cropped region for TOPS processing.')
+
+        self.product.processingSoftwareVersion = '+'.join(set([x.product.processingSoftwareVersion for x in slices]))
+
+        if len( self.product.processingSoftwareVersion.split('+')) != 1:
+            raise Exception('Trying to combine SLC products from different IPF versions {0}\n'.format(self.product.processingSoftwareVersion) +
+                            'This is not possible as SLCs are sliced differently with different versions of the processor. \n' +
+                            'Integer shift between bursts cannot be guaranteed\n'+
+                            'Exiting .......')
+
 
         for index in indices:
             aslice = slices[index]
 
-            offset = np.int(np.rint((aslice.product.bursts[0].sensingStart - t0).total_seconds() / burstStartInterval.total_seconds()))
+            offset = np.int(np.rint((aslice.product.bursts[0].burstStartUTC - t0).total_seconds() / burstStartInterval.total_seconds()))
 
             for kk in range(aslice.product.numberOfBursts):
                 #####Overwrite previous copy if one exists
@@ -485,23 +501,23 @@ class Sentinel1(Component):
                     if len(self.tiff):
                         self._tiffSrc[offset+kk] = aslice.tiff[0]
 
-                    if aslice.product.processingSoftwareVersion == '002.36':
-                        self._elevationAngleVsTau[offset+kk] = aslice._elevationAngleVsTau[kk]
+                    self._elevationAngleVsTau[offset+kk] = aslice._elevationAngleVsTau[kk]
 
                 elif (offset+kk) == len(self.product.bursts):
                     self.product.bursts.append(aslice.product.bursts[kk])
                     if len(self.tiff):
                         self._tiffSrc.append(aslice.tiff[0])
 
-                    if aslice.product.processingSoftwareVersion == '002.36':
-                       self._elevationAngleVsTau.append(aslice._elevationAngleVsTau[kk])
+                    self._elevationAngleVsTau.append(aslice._elevationAngleVsTau[kk])
                 else:
                     print('Offset indices = ', indices)
                     raise Exception('There appears to be a gap between slices. Cannot stitch them successfully.')
 
         self.product.numberOfBursts = len(self.product.bursts)
-        self.product.processingSoftwareVersion = firstSlice.product.processingSoftwareVersion
+
+        print('COMBINED VERSION: ', self.product.processingSoftwareVersion)
         self.product.ascendingNodeTime = firstSlice.product.ascendingNodeTime
+        self.product.mission = firstSlice.product.mission
         return
 
 
@@ -601,6 +617,13 @@ class Sentinel1(Component):
             burst.prf = prf
             burst.terrainHeight = terrainHeight
             burst.rangeSamplingRate = rangeSampleRate
+            #add these for doing bandpass filtering, Cunren Liang, 27-FEB-2018
+            burst.rangeWindowType = self.getxmlvalue('imageAnnotation/processingInformation/swathProcParamsList/swathProcParams/rangeProcessing/windowType')
+            burst.rangeWindowCoefficient = float(self.getxmlvalue('imageAnnotation/processingInformation/swathProcParamsList/swathProcParams/rangeProcessing/windowCoefficient'))
+            burst.rangeProcessingBandwidth = float(self.getxmlvalue('imageAnnotation/processingInformation/swathProcParamsList/swathProcParams/rangeProcessing/processingBandwidth'))
+            burst.azimuthWindowType = self.getxmlvalue('imageAnnotation/processingInformation/swathProcParamsList/swathProcParams/azimuthProcessing/windowType')
+            burst.azimuthWindowCoefficient = float(self.getxmlvalue('imageAnnotation/processingInformation/swathProcParamsList/swathProcParams/azimuthProcessing/windowCoefficient'))
+            burst.azimuthProcessingBandwidth = float(self.getxmlvalue('imageAnnotation/processingInformation/swathProcParamsList/swathProcParams/azimuthProcessing/processingBandwidth'))
 
         return
 
@@ -716,6 +739,9 @@ class Sentinel1(Component):
             
                 arg = np.argmin(dd)
                 self._elevationAngleVsTau.append(eaps[arg][1])
+        else:
+            for index, burst in enumerate(self.product.bursts):
+                self._elevationAngleVsTau.append(None)
 
 
 
@@ -725,9 +751,9 @@ class Sentinel1(Component):
         '''
 
         try:
-            if self.manifest.startswith('/vsizip'):
+            if self.manifest[0].startswith('/vsizip'):
                 import zipfile
-                parts = self.manifest.split(os.path.sep)
+                parts = self.manifest[0].split(os.path.sep)
                 if parts[2] == '':
                     parts[2] = os.path.sep
                 zipname = os.path.join(*(parts[2:-2]))
@@ -738,7 +764,7 @@ class Sentinel1(Component):
                 xmlstr = zf.read(fname)
 
             else:
-                with open(self.manifest, 'r') as fid:
+                with open(self.manifest[0], 'r') as fid:
                     xmlstr = fid.read()
 
             ####Setup namespace
@@ -795,14 +821,10 @@ class Sentinel1(Component):
 
         #####Orbits provided in annotation files are not InSAR-grade
         #####These also need extensions for interpolation to work
-        orbExt = OrbitExtender(planet=Planet(pname='Earth'))
-        orbExt.configure()
-        newOrb = orbExt.extendOrbit(frameOrbit)
 
-
-        return newOrb
+        return frameOrbit
             
-    def extractPreciseOrbit(self, margin=40.0):
+    def extractPreciseOrbit(self, margin=60.0):
         '''
         Extract precise orbit from given Orbit file.
         '''
@@ -838,6 +860,11 @@ class Sentinel1(Component):
                 for tag in ['X','Y','Z']:
                     pos.append(float(child.find(tag).text))
 
+                ###Warn if state vector quality is not nominal
+                quality = child.find('Quality').text.strip()
+                if quality != 'NOMINAL':
+                    print('WARNING: State Vector at time {0} tagged as {1} in orbit file {2}'.format(timestamp, quality, self.orbitFile))
+
                 vec = StateVector()
                 vec.setTime(timestamp)
                 vec.setPosition(pos)
@@ -856,6 +883,7 @@ class Sentinel1(Component):
        
         Geap_IQ = None
 
+        print("extracting aux from: " +  self.auxFile)
         fp = open(self.auxFile,'r')
         xml_root = ET.ElementTree(file=fp).getroot()
         res = xml_root.find('calibrationParamsList/calibrationParams')
@@ -864,14 +892,15 @@ class Sentinel1(Component):
             if (par.find('swath').text.strip() == ('IW'+str(burst.swathNumber))) and (par.find('polarisation').text == burst.polarization):
               self._delta_theta = float(par.find('elevationAntennaPattern/elevationAngleIncrement').text)
               Geap_IQ = [float(val) for val in par.find('elevationAntennaPattern/values').text.split()]
-        
+       
+        len(Geap_IQ)
         I = np.array(Geap_IQ[0::2])
         Q = np.array(Geap_IQ[1::2])
         self._Geap = I[:]+Q[:]*1j   # Complex vector of Elevation Antenna Pattern
         
         return
 
-    def extractImage(self):
+    def extractImage(self, virtual=False):
         """
            Use gdal python bindings to extract image
         """
@@ -888,9 +917,9 @@ class Sentinel1(Component):
 
         numberBursts = len(self.product.bursts)
         if (numberBursts == 0):
-            raise Exception('No bursts to extract')
+            raise Exception('NODATA: No bursts to extract')
 
-        if self.product.processingSoftwareVersion == '002.36':
+        if '002.36' in self.product.processingSoftwareVersion:
             '''Range dependent correction needed.'''
        
             if self.auxFile is None:
@@ -909,7 +938,14 @@ class Sentinel1(Component):
         width = self._burstWidth
         length = self._burstLength
 
-   
+
+        ####Check if aux file corrections are needed
+        useAuxCorrections = False
+        if ('002.36' in self.product.processingSoftwareVersion) and (self.auxFile is not None):
+            useAuxCorrections = True
+
+
+
         ###If not specified, for single slice, use width and length from first burst
         if width is None:
             width = self.product.bursts[0].numberOfSamples
@@ -925,72 +961,102 @@ class Sentinel1(Component):
             print('Creating directory {0} '.format(self.output))
             os.makedirs(self.output)
 
+
+        prevTiff = None
         for index, burst in enumerate(self.product.bursts):
 
             ####tiff for single slice
             if (len(self._tiffSrc) == 0) and (len(self.tiff)==1):
-                src = gdal.Open(self.tiff[0], gdal.GA_ReadOnly)
+                tiffToRead = self.tiff[0]
             else: ##tiffSrc for multi slice
-                src = gdal.Open(self._tiffSrc[index], gdal.GA_ReadOnly)
+                tiffToRead = self._tiffSrc[index]
 
-            band = src.GetRasterBand(1)
+
+            ###To minimize reads and speed up 
+            if tiffToRead != prevTiff:
+                src=None
+                band=None
+                src = gdal.Open(tiffToRead, gdal.GA_ReadOnly)
+                fullWidth = src.RasterXSize
+                fullLength = src.RasterYSize
+                band = src.GetRasterBand(1)
+                prevTiff = tiffToRead
 
             outfile = os.path.join(self.output, 'burst_%02d'%(index+1) + '.slc')
             originalWidth = burst.numberOfSamples
             originalLength = burst.numberOfLines
-            
-            ###Write original SLC to file
-            fid = open(outfile, 'wb')
-
+          
             ####Use burstnumber to look into tiff file
             ####burstNumber still refers to original burst in slice
             lineOffset = (burst.burstNumber-1) * burst.numberOfLines
 
-            ###Read whole burst for debugging. Only valid part is used.
-            data = band.ReadAsArray(0, lineOffset, burst.numberOfSamples, burst.numberOfLines)
-
-            ###Create output array and copy in valid part only
-            ###Easier then appending lines and columns.
-            outdata = np.zeros((length,width), dtype=np.complex64)
-            outdata[burst.firstValidLine:burst.lastValidLine, burst.firstValidSample:burst.lastValidSample] =  data[burst.firstValidLine:burst.lastValidLine, burst.firstValidSample:burst.lastValidSample]
-
-            ###################################################################################
-            #Check if IPF version is 2.36 we need to correct for the Elevation Antenna Pattern 
-            if (self.product.processingSoftwareVersion == '002.36') and (self.auxFile is not None):
-
-                print('The IPF version is 2.36. Correcting the Elevation Antenna Pattern ...')
-
-                self.extractCalibrationPattern()
-
-                Geap = self.computeElevationAntennaPatternCorrection(burst, index)
-
-                for i in range(burst.firstValidLine, burst.lastValidLine):
-                    outdata[i, burst.firstValidSample:burst.lastValidSample] = outdata[i, burst.firstValidSample:burst.lastValidSample]/Geap[burst.firstValidSample:burst.lastValidSample]
-            ########################
-
-            outdata.tofile(fid)
-            fid.close()
-               
-            #Updated width and length to match extraction
-            burst.numberOfSamples = width
-            burst.numberOfLines = length
-            burst.burstNumber = index + 1
-
+            ###We are doing this before we extract any data because
+            ###renderHdr also calls renderVRT and for virtual calls
+            ###we will overwrite the VRT.
+            ###Ideally, when we move to a single VRT interface, this 
+            ###will occur later
             ####Render ISCE XML
             slcImage = isceobj.createSlcImage()
             slcImage.setByteOrder('l')
             slcImage.setFilename(outfile)
             slcImage.setAccessMode('read')
-            slcImage.setWidth(burst.numberOfSamples)
-            slcImage.setLength(burst.numberOfLines)
+            slcImage.setWidth(width)
+            slcImage.setLength(length)
             slcImage.setXmin(0)
-            slcImage.setXmax(burst.numberOfSamples)
+            slcImage.setXmax(width)
             slcImage.renderHdr()
             burst.image = slcImage 
 
-            ####Release gdal pointers
-            band = None
-            src = None
+
+            ###When you need data actually written as a burst file.
+            if useAuxCorrections or (not virtual):
+                ###Write original SLC to file
+                fid = open(outfile, 'wb')
+
+
+
+                ###Read whole burst for debugging. Only valid part is used.
+                data = band.ReadAsArray(0, lineOffset, burst.numberOfSamples, burst.numberOfLines)
+
+                ###Create output array and copy in valid part only
+                ###Easier then appending lines and columns.
+                outdata = np.zeros((length,width), dtype=np.complex64)
+                outdata[burst.firstValidLine:burst.lastValidLine, burst.firstValidSample:burst.lastValidSample] =  data[burst.firstValidLine:burst.lastValidLine, burst.firstValidSample:burst.lastValidSample]
+
+                print('Read outdata')
+                ###################################################################################
+                #Check if IPF version is 2.36 we need to correct for the Elevation Antenna Pattern 
+                if (useAuxCorrections) and (self._elevationAngleVsTau[index] is not None):
+
+                    print('The IPF version is 2.36. Correcting the Elevation Antenna Pattern ...')
+
+                    self.extractCalibrationPattern()
+
+                    Geap = self.computeElevationAntennaPatternCorrection(burst, index)
+
+                    for i in range(burst.firstValidLine, burst.lastValidLine):
+                        outdata[i, burst.firstValidSample:burst.lastValidSample] = outdata[i, burst.firstValidSample:burst.lastValidSample]/Geap[burst.firstValidSample:burst.lastValidSample]
+                ########################
+                    print('Normalized')
+                
+                outdata.tofile(fid)
+                fid.close()
+
+            else:    ####VRT to point to the original file.
+
+                createBurstVRT(tiffToRead, fullWidth, fullLength,
+                        lineOffset,burst,
+                        width, length, outfile+'.vrt')
+               
+            #Updated width and length to match extraction
+            burst.numberOfSamples = width
+            burst.numberOfLines = length
+            print('Updating burst number from {0} to {1}'.format(burst.burstNumber, index+1))
+            burst.burstNumber = index + 1
+
+
+        src=None
+        band=None
 
         ####Dump the product
         pm = ProductManager()
@@ -1137,8 +1203,7 @@ class Sentinel1(Component):
                 cropList.append(burst)
                 if len(self._tiffSrc):
                     tiffList.append(self._tiffSrc[ind])
-                if self.product.processingSoftwareVersion == '002.36':
-                    eapList.append(self._elevationAngleVsTau[ind])
+                eapList.append(self._elevationAngleVsTau[ind])
 
        
         ####Actual cropping
@@ -1172,21 +1237,23 @@ def s1_findAuxFile(auxDir, timeStamp, mission='S1A'):
 
     files = glob.glob(os.path.join(auxDir, mission+'_AUX_CAL_*'))
         
-    ###List all orbit files
+    ###List all AUX files
+    ### Bugfix: Bekaert David [DB 03/2017] : Give the latest generated AUX file
     for result in files:
         fields = result.split('_')
+        
         taft = datetime.datetime.strptime(fields[-1][1:16], datefmt)
         tbef = datetime.datetime.strptime(fields[-2][1:16], datefmt)
-                
-        #####Get all files that span the acquisition
+        
+        ##### Get all AUX files defined prior to the acquisition
         if (tbef <= timeStamp) and (taft >= timeStamp):
-            tmid = tbef + 0.5 * (taft - tbef)
-            match.append((result, abs((timeStamp-tmid).total_seconds())))
-
-    #####Return the file with the image is aligned best to the middle of the file
+            match.append((result, abs((timeStamp-taft).total_seconds())))
+   
+    ##### Return the latest generated AUX file 
     if len(match) != 0:
-        bestmatch = min(match, key = lambda x: x[1])
-        return os.path.join(bestmatch[0], 'data', mission.lower()+'-aux-cal.xml')
+        bestmatch = max(match, key = lambda x: x[1])
+        if len(match) >= 1:
+            return os.path.join(bestmatch[0], 'data', mission.lower()+'-aux-cal.xml')
 
        
     if len(match) == 0:
@@ -1290,8 +1357,52 @@ def s1_anx2Height(delta_anx):
     return ht
  
 
+def createBurstVRT(filename, fullWidth, fullLength,
+        yoffset, burst,
+        outwidth, outlength, outfile):
+    '''
+    Create a VRT file representing a single burst.
+    '''
+
+    if filename.startswith('/vsizip'):
+        parts = filename.split(os.path.sep)
+
+        if parts[2] == '':
+            parts[2] = os.path.sep
+
+        fname = os.path.join(*(parts[2:]))
+#        relfilename = os.path.join( '/vsizip', os.path.relpath(fname, os.path.dirname(outfile)))
+        relfilename = '/vsizip/' + os.path.abspath(fname)
+    else:
+        relfilename = os.path.relpath(filename, os.path.dirname(outfile)) 
+
+    rdict = { 'inwidth' : burst.lastValidSample - burst.firstValidSample,
+              'inlength' : burst.lastValidLine - burst.firstValidLine,
+              'outwidth' : outwidth,
+              'outlength' : outlength,
+              'filename' : relfilename,
+              'yoffset': yoffset + burst.firstValidLine,
+              'localyoffset': burst.firstValidLine,
+              'xoffset' : burst.firstValidSample,
+              'fullwidth': fullWidth,
+              'fulllength': fullLength}
 
 
+    tmpl = '''<VRTDataset rasterXSize="{outwidth}" rasterYSize="{outlength}">
+    <VRTRasterBand dataType="CFloat32" band="1">
+        <NoDataValue>0.0</NoDataValue>
+        <SimpleSource>
+            <SourceFilename relativeToVRT="1">{filename}</SourceFilename>
+            <SourceBand>1</SourceBand>
+            <SourceProperties RasterXSize="{fullwidth}" RasterYSize="{fulllength}" DataType="CInt16"/>
+            <SrcRect xOff="{xoffset}" yOff="{yoffset}" xSize="{inwidth}" ySize="{inlength}"/>
+            <DstRect xOff="{xoffset}" yOff="{localyoffset}" xSize="{inwidth}" ySize="{inlength}"/>
+        </SimpleSource>
+    </VRTRasterBand>
+</VRTDataset>'''
+
+    with open(outfile, 'w') as fid:
+        fid.write( tmpl.format(**rdict))
 
 if __name__ == '__main__':
 

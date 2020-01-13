@@ -16,16 +16,16 @@ void LineAccessor::changeBandScheme(string filein, string fileout, string type, 
 
     try
     {
-        fstream fin(filein.c_str(), ios::in);	
+        fstream fin(filein.c_str(), ios::in);
         if(!fin)
         {
             cout << "Cannot open file " << filein << endl;
             ERR_MESSAGE;
         }
-        int sizeV = getTypeSize(type);	
+        int sizeV = getTypeSize(type);
         int length = ((int)getFileSize(fin))/(width*numBands*sizeV);
         char * totFile = new char[sizeV*width*length*numBands];
-        char * line = new char[sizeV*width]; 
+        char * line = new char[sizeV*width];
         ofstream fout(fileout.c_str());
         if(!fout)
         {
@@ -143,20 +143,20 @@ void LineAccessor::changeBandScheme(string filein, string fileout, string type, 
     }
     catch(bad_alloc&)//cannot read the full size in memory, try something else
     {
-        //for BIP <-> BIL can read one  "line" (width and number bands) and rearrange the elements i.e. the 
+        //for BIP <-> BIL can read one  "line" (width and number bands) and rearrange the elements i.e. the
         //file can be read one "line"  at the time
 
-        fstream fin(filein.c_str(), ios::in);	
+        fstream fin(filein.c_str(), ios::in);
         if(!fin)
         {
             cout << "Cannot open file " << filein << endl;
             ERR_MESSAGE;
         }
-        int sizeV = getTypeSize(type);	
+        int sizeV = getTypeSize(type);
         int length = ((int)getFileSize(fin))/(width*numBands*sizeV);
         int lineSize = sizeV*width*numBands;
         char * lineIn = new char[lineSize];
-        char * line = new char[lineSize]; 
+        char * line = new char[lineSize];
         ofstream fout(fileout.c_str());
         if(!fout)
         {
@@ -208,7 +208,7 @@ void LineAccessor::changeBandScheme(string filein, string fileout, string type, 
                     fout.seekp(pos);
                     if(bandIn == BIL)
                     {
-                        fout.write(&lineIn[sizeV*width*k],sizeV*width);	
+                        fout.write(&lineIn[sizeV*width*k],sizeV*width);
                     }
                     else
                     {
@@ -220,7 +220,7 @@ void LineAccessor::changeBandScheme(string filein, string fileout, string type, 
                             }
                         }
 
-                        fout.write(&line[sizeV*width*k],sizeV*width);	
+                        fout.write(&line[sizeV*width*k],sizeV*width);
 
                     }
                 }
@@ -249,7 +249,7 @@ void LineAccessor::changeBandScheme(string filein, string fileout, string type, 
                             }
                         }
                     }
-                    fout.write(line,lineSize);	
+                    fout.write(line,lineSize);
                 }
 
             }
@@ -291,16 +291,15 @@ void LineAccessor::convertFileEndianness(string fileIn, string fileOut, string t
     int sizeV = getSizeForSwap(type);
     if(sizeV == 1)
     {
-        cout << "No need to convert endianness if the type size is one." << endl; 
+        cout << "No need to convert endianness if the type size is one." << endl;
     }
     else
     {
-        int reminder = 0;
         streampos  fileSize = 0;
         streampos memorySize = 0;
         while(memoryNotAllocated)
         {
-            try	
+            try
             {
                 fileSize = getFileSize(fin);
                 memorySize = (fileSize/(divisor*sizeV))*sizeV;//make sure that an integer number of sizeV is read
@@ -313,7 +312,7 @@ void LineAccessor::convertFileEndianness(string fileIn, string fileOut, string t
                 divisor *= 2;
             }
         }
-        while(!fin.eof()) 
+        while(!fin.eof())
         {
             fin.read(fileBuffer,memorySize);
             streampos bytesRead = fin.gcount();
@@ -345,7 +344,7 @@ void LineAccessor::createFile(int * fileLength)
 
 }
 
-void LineAccessor::rewindImage()    
+void LineAccessor::rewindImage()
 {
     ColumnPosition = 1;
     LineCounter = 1;
@@ -357,7 +356,7 @@ void LineAccessor::rewindImage()
 char LineAccessor::getMachineEndianness()
 {
     unsigned short int intV = 49;//ascii code for 1
-    char *  ptChar = (char *) &intV; 
+    char *  ptChar = (char *) &intV;
     char retVal = 'b';
     if(ptChar[0] == '1')
     {
@@ -436,7 +435,7 @@ int LineAccessor::getTypeSize(string type)
     {
         vector<string> data = getAvailableDataTypes();
         cout << "Error. Unrecognized data type " << type << ". Available types are: "<< endl;
-        for(int i = 0; i < data.size(); ++i)
+        for(int i = 0; i < (int)data.size(); ++i)
         {
             cout << data[i] << endl;
         }
@@ -447,7 +446,7 @@ int LineAccessor::getTypeSize(string type)
 
 vector<string> LineAccessor::getAvailableDataTypes()
 {
-    vector<string> dataType; 
+    vector<string> dataType;
     dataType.push_back("BYTE");
     dataType.push_back("CHAR");
     dataType.push_back("SHORT");
@@ -468,7 +467,7 @@ void LineAccessor::printAvailableDataTypesAndSizes()
     vector<int>  size;
 
     getAvailableDataTypesAndSizes(dataType, size);
-    for(int i = 0; i < size.size(); ++i)
+    for(int i = 0; i < (int)size.size(); ++i)
     {
         cout << dataType[i] << "\t" << size[i] << endl;
     }
@@ -506,10 +505,10 @@ void LineAccessor::finalizeLineAccessor()
 {
     if(NeedToFlush)
     {
-        FileObject.write(PtArray,(LineCounter - 1)*SizeV*FileWidth);	
+        FileObject.write(PtArray,(LineCounter - 1)*SizeV*FileWidth);
     }
     FileObject.close();
-    delete [] PtArray;	
+    delete [] PtArray;
 }
 
 void LineAccessor::getStream(char * dataLine,  int * numEl)
@@ -527,7 +526,7 @@ void LineAccessor::getStreamAtPos(char * dataLine, int * pos,  int * numEl)
 
 }
 void LineAccessor::getElements(char * dataLine, int * row, int * col, int * numEl)
-{	
+{
     vector<int> indx((*numEl),0);
     vector<int> colCp((*numEl),0);
     vector<int> rowCp((*numEl),0);
@@ -539,7 +538,7 @@ void LineAccessor::getElements(char * dataLine, int * row, int * col, int * numE
         colCp[i] = col[i];
         rowCp[i] = row[i];
     }
-    quickSort(&rowCp[0],&colCp[0],&indx[0],0,(*numEl) - 1);//so could check if some elements are close by and load 
+    quickSort(&rowCp[0],&colCp[0],&indx[0],0,(*numEl) - 1);//so could check if some elements are close by and load
     // a tile that might contain some.
     int elementsRead = 0;
     int rowPos = rowCp[0];
@@ -568,7 +567,7 @@ void LineAccessor::getElements(char * dataLine, int * row, int * col, int * numE
             }
         }
         for(int i = startIndx; i < lineIndx; ++i)
-        {	
+        {
             for(int j = 0; j < SizeV; ++j)
             {
 
@@ -688,7 +687,7 @@ void LineAccessor::initLineAccessor(string filename, string filemode, char endia
     {
 
         SizeXTile = 1;
-    } 
+    }
     else
     {
 
@@ -768,7 +767,7 @@ void LineAccessor::setStreamAtPos(char * dataLine, int * pos,  int * numEl)
 }
 void LineAccessor::setElements(char * dataLine, int * row, int * col, int * numEl)
 {
-    //make sure rows and colums are in range 
+    //make sure rows and colums are in range
     for(int i = 0; i < (*numEl); ++i)
     {
         checkRowRange(row[i]);
@@ -804,7 +803,7 @@ void LineAccessor::setElements(char * dataLine, int * row, int * col, int * numE
             FileObject.seekp(off, ios_base::beg);
             for(int j = 0; j < SizeV; ++j)
             {
-                buffer[j] = dataLine[j + startIndx*SizeV];  
+                buffer[j] = dataLine[j + startIndx*SizeV];
             }
             FileObject.write(buffer,SizeV);
 
@@ -823,11 +822,11 @@ void LineAccessor::setElements(char * dataLine, int * row, int * col, int * numE
             FileObject.seekp(off, ios_base::beg);
             //copy elements in the tile and write back
             for(int i = startIndx; i < lineIndx; ++i)
-            {	
+            {
                 for(int j = 0; j < SizeV; ++j)
                 {
 
-                    buffer[j + (col[i] - 1)*SizeV + (row[i] - rowPos)*LineSize] = dataLine[j + i*SizeV];  
+                    buffer[j + (col[i] - 1)*SizeV + (row[i] - rowPos)*LineSize] = dataLine[j + i*SizeV];
                 }
             }
             FileObject.write(buffer,countG);
@@ -860,7 +859,7 @@ void LineAccessor::setLineSequential(char * dataLine)
             PtArray[i + (LineCounter - 1)*FileWidth*SizeV] = dataLine[i];
         }
         if( ((LineCounter))%(SizeYTile) == 0)
-        {	
+        {
 
             FileObject.write(PtArray,TileSize);
             NeedToFlush = false;
@@ -1001,7 +1000,7 @@ void  LineAccessor::openFile(string filename, string accessMode, fstream & fd)
         FileLength = FileSize/(SizeV*FileWidth);// number of lines
         if(FileSize%(SizeV*FileWidth))
         {
-            //better be divisable by sizeV*FileWidth 
+            //better be divisable by sizeV*FileWidth
             cout << "Error. The number of lines in the file " << Filename << " computed as file_size/(line_size) is not integer. Filesize = " << FileSize << " number element per line = " << FileWidth << " size of one element = " << SizeV << endl;
             ERR_MESSAGE;
         }
@@ -1035,7 +1034,7 @@ void  LineAccessor::openFile(string filename, string accessMode, fstream & fd)
         FileLength = FileSize/(SizeV*FileWidth);// number of lines
         if(FileSize%(SizeV*FileWidth))
         {
-            //better be divisable by sizeV*FileWidth 
+            //better be divisable by sizeV*FileWidth
             cout << "Error. The number of lines in the file computed as file_size/(line_size) is not integer. Filesize = " << FileSize << " number element per line = " << FileWidth << " size of one element = " << SizeV << endl;
             ERR_MESSAGE;
         }
@@ -1089,8 +1088,8 @@ void LineAccessor::quickSort(int * row, int * col ,int * indx, int lo, int hi)
 {
     int i =  lo;
     int j = hi;
-    int tmpIndxR = 0; 
-    int tmpIndxC = 0; 
+    int tmpIndxR = 0;
+    int tmpIndxC = 0;
     int tmpIndx = 0;
     int half = row[(lo + hi)/2];
     do
@@ -1125,8 +1124,8 @@ void LineAccessor::swapBytes(char * buffer, int numElements, int sizeV)
                 for(int i = 0; i < numElements; ++i)
                 {
 
-                    (* (uint16_t *) &buffer[i*sizeV]) = swap2Bytes((uint16_t *) &buffer[i*sizeV]);	
-                }  
+                    (* (uint16_t *) &buffer[i*sizeV]) = swap2Bytes((uint16_t *) &buffer[i*sizeV]);
+                }
                 break;
             }
         case 4:
@@ -1134,7 +1133,7 @@ void LineAccessor::swapBytes(char * buffer, int numElements, int sizeV)
 
                 for(int i = 0; i < numElements; ++i)
                 {
-                    (* ((uint32_t *) &buffer[i*sizeV])) = swap4Bytes((uint32_t *)&buffer[i*sizeV]);	
+                    (* ((uint32_t *) &buffer[i*sizeV])) = swap4Bytes((uint32_t *)&buffer[i*sizeV]);
                 }
                 break;
 
@@ -1151,8 +1150,8 @@ void LineAccessor::swapBytes(char * buffer, int numElements, int sizeV)
                 for(int i = 0; i < numElements; ++i)
                 {
 
-                    (* (uint64_t *) &buffer[i*sizeV]) = swap8BytesFast((uint64_t *) &buffer[i*sizeV]);	
-                }			
+                    (* (uint64_t *) &buffer[i*sizeV]) = swap8BytesFast((uint64_t *) &buffer[i*sizeV]);
+                }
 #endif
                 break;
             }
@@ -1171,7 +1170,7 @@ void LineAccessor::swapBytes(char * buffer, int numElements, int sizeV)
                 for(int i = 0; i < numElements; ++i)
                 {
                     swap16Bytes(&buffer[i*sizeV]);
-                }	
+                }
                 break;
             }
         default:
@@ -1187,29 +1186,29 @@ void LineAccessor::swapBytes(char * buffer, int numElements, int sizeV)
 
 uint16_t LineAccessor::swap2Bytes(uint16_t * x)
 {
-    return ((*x) & 0xFF00) >> 8 | 
+    return ((*x) & 0xFF00) >> 8 |
         ((*x) & 0x00FF) << 8;
 }
 uint32_t LineAccessor::swap4Bytes(uint32_t * x)
 {
-    return ((*x) & 0xFF000000) >> 24 | 
-        ((*x) & 0x00FF0000) >> 8 | 
-        ((*x) & 0x0000FF00) << 8 | 
+    return ((*x) & 0xFF000000) >> 24 |
+        ((*x) & 0x00FF0000) >> 8 |
+        ((*x) & 0x0000FF00) << 8 |
         ((*x) & 0x000000FF) << 24;
 }
 
 // had to do it since some g++ compiler give a warning if the number is larger then the register, others give an error
-#ifdef MACHINE_64 
+#ifdef MACHINE_64
 // if the machine is not 64 bit this cannot be used since the registers are too small (>> and  << is done into register, not memory => fast)
 uint64_t LineAccessor::swap8BytesFast(uint64_t * x)
 {
-    return ((*x) & 0xFF00000000000000) >> 56 | 
-        ((*x) & 0x00FF000000000000) >> 40 | 
-        ((*x) & 0x0000FF0000000000) >> 24 | 
-        ((*x) & 0x000000FF00000000)  >> 8  | 
-        ((*x) & 0x00000000FF000000)  << 8  | 
-        ((*x) & 0x0000000000FF0000) << 24 | 
-        ((*x) & 0x000000000000FF00) << 40 | 
+    return ((*x) & 0xFF00000000000000) >> 56 |
+        ((*x) & 0x00FF000000000000) >> 40 |
+        ((*x) & 0x0000FF0000000000) >> 24 |
+        ((*x) & 0x000000FF00000000)  >> 8  |
+        ((*x) & 0x00000000FF000000)  << 8  |
+        ((*x) & 0x0000000000FF0000) << 24 |
+        ((*x) & 0x000000000000FF00) << 40 |
         ((*x) & 0x00000000000000FF) << 56;
 }
 #endif
@@ -1249,45 +1248,6 @@ void LineAccessor::swap16Bytes(char * x) //for some architecture size(long doubl
         x[i] = x[size-1-i];
         x[size-1-i] = tmp;
     }
-
 }
 
-#if(0)
-//use it only for debugging
-void LineAccessor::test()
-{
-    LineAccessor LA;
-    int val = 12;
-    long double longD  = 1.0;
-    cout << sizeof(long double) << endl;
-    char  * test = new char[val];
-    test = (char *) &longD;
-    for(int i = 0; i < val; ++i)
-    {
-        cout << int(*(char *)&test[i]) << " " << hex <<  (uint32_t) ( &test[i]) << dec << endl;
-    }
-    cout << hex << (uint32_t *)&test[0]  << dec << endl;
-    LA.swap12Bytes(test);
-    for(int i = 0; i < val; ++i)
-    {
-        cout << dec << int(*(char *)&test[i]) << " " << hex <<(uint32_t) &test[i]  << endl;
-    }
-    /*
-       string  filename = "/Users/giangi/TEST_DIR/930110/930110.slc";
-       string filemode = "read";
-       char endian = 'l';
-       string type = "CFLOAT";
-       int row = 100;
-       int col = 5700;
-       LA.initLineAccessor(filename, filemode, endian, type, row,col);
-       char * data = LA.getTileArray();
-    //	LA.initLineAccessor(row,col,sizeV);
-    cout << LA.getFileSize("/Volumes/jngBak_2/RadarSimulator/wrfout_dir/SAM/GATE/SAM_GATE_IDEAL_S_2048x2048x256_100m_2s_2048_0000038700.bin") << endl;
-    char * data = LA.getTileArray();
-    testImageSetGet_f( (void *) &LA, (float *) data, &row,&col);
-    LA.finalizeLineAccessor();
-
-*/
-}
-#endif
-
+//end-of-file

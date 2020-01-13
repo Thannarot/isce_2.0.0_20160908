@@ -337,7 +337,17 @@ class Orbit(Component):
             print("Orbit.addStateVector: vec = ", vec)
             import sys
             sys.exit(0)
-        self._stateVectors.append(vec)
+
+        vtime  = vec.getTime()
+        if vtime > self.maxTime:
+            self._stateVectors.append(vec)
+        else:
+            for ind, sv in enumerate(self._stateVectors):
+                if sv.time > vtime:
+                    break
+
+            self._stateVectors.insert(ind, vec)
+
         # Reset the minimum and maximum time bounds if necessary
         if vec.time < self.minTime: self.minTime = vec._time
         if vec.time > self.maxTime: self.maxTime = vec._time
@@ -821,7 +831,7 @@ class Orbit(Component):
         return np.degrees(hdg)
 
 
-    def pointOnGround(self, aztime, rng, height=0.,
+    def rdr2geo(self, aztime, rng, height=0.,
             doppler = None, wvl = None,
             planet=None, side=-1):
         '''
@@ -833,8 +843,6 @@ class Orbit(Component):
 
         ####Setup doppler for the equations
         dopfact = 0.0
-
-
 
         hdg = self.getENUHeading(time=aztime)
 
@@ -879,6 +887,10 @@ class Orbit(Component):
 
         for ii in range(10):
 
+            ###Near nadir tests
+            if (satLLH[2]-zsch) >= rng:
+                return None 
+
             a = (satLLH[2] + radius)
             b = (radius + zsch)
 
@@ -900,12 +912,90 @@ class Orbit(Component):
             zsch = targSCH[2]
 
             rdiff  = rng - np.linalg.norm(np.array(satVec) - np.array(targXYZ))
-#            print(ii, zsch,  targLLH[2], rdiff)
 
         return targLLH
 
+
+    def rdr2geoNew(self, aztime, rng, height=0.,
+            doppler = None, wvl = None,
+            planet=None, side=-1):
+        '''
+        Returns point on ground at given height and doppler frequency.
+        Never to be used for heavy duty computing.
+        '''
+
+        from isceobj.Planet.Planet import Planet
+
+        ####Setup doppler for the equations
+        dopfact = 0.
+
+        sv = self.interpolateOrbit(aztime, method='hermite')
+        pos = np.array(sv.getPosition())
+        vel =np.array( sv.getVelocity())
+        vmag = np.linalg.norm(vel)
+
+        if doppler is not None:
+            dopfact = doppler(DTU.seconds_since_midnight(aztime), rng) * 0.5 * wvl * rng/vmag
+
+        if planet is None:
+            refElp = Planet(pname='Earth').ellipsoid
+        else:
+            refElp = planet.ellipsoid
+
+        ###Convert position and velocity to local tangent plane
+        major = refElp.a
+        minor = major * np.sqrt(1 - refElp.e2)
+
+        #####Setup ortho normal system right below satellite
+        satDist = np.linalg.norm(pos)
+        alpha = 1 / np.linalg.norm(pos/ np.array([major, major, minor]))
+        radius = alpha * satDist
+        hgt = (1.0 - alpha) * satDist
+
+        ###Setup TCN basis - Geocentric
+        nhat = -pos/satDist
+        temp = np.cross(nhat, vel)
+        chat = temp / np.linalg.norm(temp)
+        temp = np.cross(chat, nhat)
+        that = temp / np.linalg.norm(temp)
+        vhat = vel / vmag
+
+        ####Solve the range doppler eqns iteratively
+        ####Initial guess
+        zsch = height
+
+        for ii in range(10):
+
+            ###Near nadir tests
+            if (hgt-zsch) >= rng:
+                return None 
+
+            a = satDist
+            b = (radius + zsch)
+
+            costheta = 0.5*(a/rng + rng/a - (b/a)*(b/rng))
+            sintheta = np.sqrt(1-costheta*costheta)
+
+            gamma = rng*costheta
+            alpha = dopfact - gamma*np.dot(nhat,vhat)/np.dot(vhat,that)
+            beta = -side*np.sqrt(rng*rng*sintheta*sintheta - alpha*alpha)
+
+            delta = alpha * that + beta * chat + gamma * nhat
+
+            targVec = pos + delta
+
+            targLLH = refElp.xyz_to_llh(list(targVec))
+            targXYZ = np.array(refElp.llh_to_xyz([targLLH[0], targLLH[1], height]))
+
+            zsch = np.linalg.norm(targXYZ) - radius
+
+            rdiff  = rng - np.linalg.norm(pos - targXYZ)
+
+        return targLLH
+
+
     ####Make rdr2geo same as pointOnGround
-    rdr2geo = pointOnGround
+    pointOnGround = rdr2geo
 
     def geo2rdr(self, llh, side=-1, planet=None,
             doppler=None, wvl=None):
@@ -956,7 +1046,6 @@ class Orbit(Component):
 
             tguess = tguess - datetime.timedelta(seconds = fn/fnprime)
 
-
         if outOfBounds:
             raise Exception('Interpolation time out of bounds')
 
@@ -964,12 +1053,20 @@ class Orbit(Component):
         return tguess, rng
 
 
-    def exportToC(self):
+    def exportToC(self, reference=None):
         from isceobj.Util import combinedlibmodule
         orb = []
 
+        ###Continue usage as usual if no reference is provided
+        ###This wont break the old interface but could cause 
+        ###issues at midnight crossing
+        if reference is None:
+            reference = self.minTime
+
+        refEpoch = reference.replace(hour=0, minute=0, second=0, microsecond=0)
+
         for sv in self._stateVectors:
-            tim = DTU.seconds_since_midnight(sv.getTime())
+            tim = (sv.getTime() - refEpoch).total_seconds()
             pos = sv.getPosition()
             vel = sv.getVelocity()
 

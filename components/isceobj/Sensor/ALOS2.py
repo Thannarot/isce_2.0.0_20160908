@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# copyright: 2010 to the present, california institute of technology.
-# all rights reserved. united states government sponsorship acknowledged.
-# any commercial use must be negotiated with the office of technology transfer
-# at the california institute of technology.
+# Copyright 2010 California Institute of Technology. ALL RIGHTS RESERVED.
 # 
-# this software may be subject to u.s. export control laws. by accepting this
-# software, the user agrees to comply with all applicable u.s. export laws and
-# regulations. user has the responsibility to obtain export licenses,  or other
-# export authority as may be required before exporting such information to
-# foreign countries or providing access to foreign persons.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 # 
-# installation and use of this software is restricted by a license agreement
-# between the licensee and the california institute of technology. it is the
-# user's responsibility to abide by the terms of the license agreement.
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+# United States Government Sponsorship acknowledged. This software is subject to
+# U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+# (No [Export] License Required except when exporting to an embargoed country,
+# end user, or in support of a prohibited end use). By downloading this software,
+# the user agrees to comply with all applicable U.S. export laws and regulations.
+# The user has the responsibility to obtain export licenses, or other export
+# authority as may be required before exporting this software to any 'EAR99'
+# embargoed foreign country or citizen of those countries.
 #
 # Author: Walter Szeliga
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -476,7 +484,56 @@ class ImageFile(object):
 #        print('LINE TAG PRF: ', prf1)
 
 #        print('Using Leaderfile PRF')
-        self.prf = prf
+#        self.prf = prf
+
+        #choose PRF according to operation mode. Cunren Liang, 2015
+        operationMode = "{}".format(self.parent.leaderFile.sceneHeaderRecord.metadata['Sensor ID and mode of operation for this channel'])
+        operationMode =operationMode[10:12]
+        if operationMode == '08' or operationMode == '09':
+            # Operation mode
+            # '00': Spotlight mode
+            # '01': Ultra-fine
+            # '02': High-sensitive
+            # '03': Fine
+            # '08': ScanSAR nominal mode
+            # '09': ScanSAR wide mode
+            # '18': Full (Quad.) pol./High-sensitive
+            # '19': Full (Quad.) pol./Fine
+            print('ScanSAR nominal mode, using PRF from the line header')
+            self.prf = prf1
+        else:
+            self.prf = prf
+
+        if operationMode == '08':
+            #adding burst information here. Cunren, 14-DEC-2015
+            sceneCenterIncidenceAngle = self.parent.leaderFile.sceneHeaderRecord.metadata['Incidence angle at scene centre']
+            sarChannelId = imageData.metadata['SAR channel indicator']
+            scanId = imageData.metadata['Scan ID'] #Scan ID starts with 1
+            
+            #if (sceneCenterIncidenceAngle > 39.032 - 5.0 and sceneCenterIncidenceAngle < 39.032 + 5.0) and (sarChannelId == 2):
+            if 1:
+                #burst parameters, currently only for the second, dual polarization, ScanSAR nominal mode 
+                #that is the second WBD mode.
+                #p.25 and p.115 of ALOS-2/PALSAR-2 Level 1.1/1.5/2.1/3.1 CEOS SAR Product Format Description
+                #for the definations of wide swath mode
+                nbraw = [358,        470,        358,        355,        487]
+                ncraw = [2086.26,    2597.80,    1886.18,    1779.60,    2211.17]
+
+                self.parent.frame.nbraw = nbraw[scanId-1]
+                self.parent.frame.ncraw = ncraw[scanId-1]
+
+                #this is the prf fraction (total azimuth bandwith) used in extracting burst.
+                #here the total bandwith is 0.93 * prfs[3] for all subswaths, which is the following values:
+                #[0.7933, 0.6371, 0.8774, 0.9300, 0.7485] 
+                prfs=[2661.847, 3314.512, 2406.568, 2270.575, 2821.225]
+                self.parent.frame.prffrac = 0.93 * prfs[3]/prfs[scanId-1]
+
+
+
+
+
+
+
         self.sensingStop = self.sensingStart + datetime.timedelta(seconds = (self.length-1)/self.prf)
 
     def _calculateRawDimensions(self,fp):

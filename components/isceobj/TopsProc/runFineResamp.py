@@ -12,9 +12,7 @@ from isceobj.Util.Poly2D import Poly2D
 import os
 import copy
 from isceobj.Sensor.TOPS import createTOPSSwathSLCProduct
-from isceobj.Util.decorators import use_api
 
-@use_api
 def resampSlave(mas, slv, rdict, outname ):
     '''
     Resample burst by burst.
@@ -104,17 +102,32 @@ def adjustValidSampleLine(master, slave, minAz=0, maxAz=0, minRng=0, maxRng=0):
     print ("Adjust valid samples")
     print('Before: ', master.firstValidSample, master.numValidSamples)
     print('Offsets : ', minRng, maxRng)
+
     if (minRng > 0) and (maxRng > 0):
-            master.numValidSamples -= (int(np.ceil(maxRng)) + 8)
-            master.firstValidSample += 4
-    elif (minRng < 0) and  (maxRng < 0):
-            master.firstValidSample -= int(np.floor(minRng) - 4)
-            master.numValidSamples += int(np.floor(minRng) - 8)
+        master.firstValidSample = slave.firstValidSample - int(np.floor(maxRng)-4)
+        lastValidSample = master.firstValidSample - 8 + slave.numValidSamples
+
+        if lastValidSample < master.numberOfSamples:
+            master.numValidSamples = slave.numValidSamples - 8
+        else:
+            master.numValidSamples = master.numberOfSamples - master.firstValidSample
+
+    elif (minRng < 0) and (maxRng < 0):
+            master.firstValidSample = slave.firstValidSample - int(np.floor(minRng) - 4)
+            lastValidSample = master.firstValidSample + slave.numValidSamples  - 8
+            if lastValidSample < master.numberOfSamples:
+               master.numValidSamples = slave.numValidSamples - 8
+            else:
+               master.numValidSamples = master.numberOfSamples - master.firstValidSample
     elif (minRng < 0) and (maxRng > 0):
-            master.firstValidSample -= int(np.floor(minRng) - 4)
-            master.numValidSamples += int(np.floor(minRng) - 8) - int(np.ceil(maxRng))
+            master.firstValidSample = slave.firstValidSample - int(np.floor(minRng) - 4)
+            lastValidSample = master.firstValidSample + slave.numValidSamples + int(np.floor(minRng) - 8) - int(np.ceil(maxRng))
+            if lastValidSample < master.numberOfSamples:
+               master.numValidSamples = slave.numValidSamples + int(np.floor(minRng) - 8) - int(np.ceil(maxRng))
+            else:
+               master.numValidSamples = master.numberOfSamples - master.firstValidSample
 
-
+    master.firstValidSample = np.max([0, master.firstValidSample])
     ###Adjust valid lines and first valid line here
     print ("Adjust valid lines")
     print('Before: ', master.firstValidLine, master.numValidLines)
@@ -179,88 +192,98 @@ def runFineResamp(self):
     Create coregistered overlap slaves.
     '''
 
-    ####Load slave metadata
-    master = self._insar.loadProduct( self._insar.masterSlcProduct + '.xml')
-    slave = self._insar.loadProduct( self._insar.slaveSlcProduct + '.xml')
 
-    dt = slave.bursts[0].azimuthTimeInterval
-    dr = slave.bursts[0].rangePixelSize
+    swathList = self._insar.getValidSwathList(self.swaths)
 
 
-    ###Output directory for coregistered SLCs
-    outdir = self._insar.fineCoregDirname
-    if not os.path.isdir(outdir):
-        os.makedirs(outdir)
+    for swath in swathList:
+        ####Load slave metadata
+        master = self._insar.loadProduct( os.path.join(self._insar.masterSlcProduct, 'IW{0}.xml'.format(swath)))
+        slave = self._insar.loadProduct( os.path.join(self._insar.slaveSlcProduct, 'IW{0}.xml'.format(swath)))
+
+        dt = slave.bursts[0].azimuthTimeInterval
+        dr = slave.bursts[0].rangePixelSize
+
+
+        ###Output directory for coregistered SLCs
+        outdir = os.path.join(self._insar.fineCoregDirname, 'IW{0}'.format(swath))
+        if not os.path.isdir(outdir):
+            os.makedirs(outdir)
 
     
-    ###Directory with offsets
-    offdir = self._insar.fineOffsetsDirname
+        ###Directory with offsets
+        offdir = os.path.join(self._insar.fineOffsetsDirname, 'IW{0}'.format(swath))
 
-    ####Indices w.r.t master
-    minBurst, maxBurst = self._insar.commonMasterBurstLimits
-    slaveBurstStart, slaveBurstEnd = self._insar.commonSlaveBurstLimits
+        ####Indices w.r.t master
+        minBurst, maxBurst = self._insar.commonMasterBurstLimits(swath-1)
+        slaveBurstStart, slaveBurstEnd = self._insar.commonSlaveBurstLimits(swath-1)
 
-    relShifts = getRelativeShifts(master, slave, minBurst, maxBurst, slaveBurstStart)
-    print('Shifts: ', relShifts) 
+        if minBurst == maxBurst:
+            print('Skipping processing of swath {0}'.format(swath))
+            continue
+
+        relShifts = getRelativeShifts(master, slave, minBurst, maxBurst, slaveBurstStart)
+        print('Shifts IW-{0}: '.format(swath), relShifts) 
    
-    ####Can corporate known misregistration here
-    apoly = Poly2D()
-    apoly.initPoly(rangeOrder=0,azimuthOrder=0,coeffs=[[0.]])
+        ####Can corporate known misregistration here
+        apoly = Poly2D()
+        apoly.initPoly(rangeOrder=0,azimuthOrder=0,coeffs=[[0.]])
 
-    rpoly = Poly2D()
-    rpoly.initPoly(rangeOrder=0,azimuthOrder=0,coeffs=[[0.]])
-
-
-    misreg_az = self._insar.slaveTimingCorrection / dt
-    misreg_rg = self._insar.slaveRangeCorrection / dr
+        rpoly = Poly2D()
+        rpoly.initPoly(rangeOrder=0,azimuthOrder=0,coeffs=[[0.]])
 
 
-    coreg = createTOPSSwathSLCProduct()
-    coreg.configure()
+        misreg_az = self._insar.slaveTimingCorrection / dt
+        misreg_rg = self._insar.slaveRangeCorrection / dr
 
-    for ii in range(minBurst, maxBurst):
-        jj = slaveBurstStart + ii - minBurst 
+
+        coreg = createTOPSSwathSLCProduct()
+        coreg.configure()
+
+        for ii in range(minBurst, maxBurst):
+            jj = slaveBurstStart + ii - minBurst 
     
-        masBurst = master.bursts[ii]
-        slvBurst = slave.bursts[jj]
+            masBurst = master.bursts[ii]
+            slvBurst = slave.bursts[jj]
 
-        try:
-            offset = relShifts[jj]
-        except:
-            raise Exception('Trying to access shift for slave burst index {0}, which may not overlap with master'.format(jj))
+            try:
+                offset = relShifts[jj]
+            except:
+                raise Exception('Trying to access shift for slave burst index {0}, which may not overlap with master for swath {1}'.format(jj, swath))
 
-        outname = os.path.join(outdir, 'burst_%02d.slc'%(ii+1))
+            outname = os.path.join(outdir, 'burst_%02d.slc'%(ii+1))
         
-        ####Setup initial polynomials
-        ### If no misregs are given, these are zero
-        ### If provided, can be used for resampling without running to geo2rdr again for fast results
-        rdict = {'azpoly' : apoly,
-                 'rgpoly' : rpoly,
-                 'rangeOff' : os.path.join(offdir, 'range_%02d.off'%(ii+1)),
-                 'azimuthOff': os.path.join(offdir, 'azimuth_%02d.off'%(ii+1))}
+            ####Setup initial polynomials
+            ### If no misregs are given, these are zero
+            ### If provided, can be used for resampling without running to geo2rdr again for fast results
+            rdict = {'azpoly' : apoly,
+                     'rgpoly' : rpoly,
+                     'rangeOff' : os.path.join(offdir, 'range_%02d.off'%(ii+1)),
+                    'azimuthOff': os.path.join(offdir, 'azimuth_%02d.off'%(ii+1))}
 
 
-        ###For future - should account for azimuth and range misreg here .. ignoring for now.
-        azCarrPoly, dpoly = slave.estimateAzimuthCarrierPolynomials(slvBurst, offset = -1.0 * offset)
+            ###For future - should account for azimuth and range misreg here .. ignoring for now.
+            azCarrPoly, dpoly = slave.estimateAzimuthCarrierPolynomials(slvBurst, offset = -1.0 * offset)
 
-        rdict['carrPoly'] = azCarrPoly
-        rdict['doppPoly'] = dpoly
+            rdict['carrPoly'] = azCarrPoly
+            rdict['doppPoly'] = dpoly
 
-        outimg = resampSlave(masBurst, slvBurst, rdict, outname)
-        minAz, maxAz, minRg, maxRg = getValidLines(slvBurst, rdict, outname,
-                misreg_az = misreg_az - offset, misreg_rng = misreg_rg)
+            outimg = resampSlave(masBurst, slvBurst, rdict, outname)
+            minAz, maxAz, minRg, maxRg = getValidLines(slvBurst, rdict, outname,
+                    misreg_az = misreg_az - offset, misreg_rng = misreg_rg)
 
 
-        copyBurst = copy.deepcopy(masBurst)
-        adjustValidSampleLine(copyBurst, slvBurst,
+#            copyBurst = copy.deepcopy(masBurst)
+            copyBurst = masBurst.clone()
+            adjustValidSampleLine(copyBurst, slvBurst,
                                          minAz=minAz, maxAz=maxAz,
                                          minRng=minRg, maxRng=maxRg)
-        copyBurst.image.filename = outimg.filename
-        print('After: ', copyBurst.firstValidLine, copyBurst.numValidLines)
-        coreg.bursts.append(copyBurst)
-        #######################################################
+            copyBurst.image.filename = outimg.filename
+            print('After: ', copyBurst.firstValidLine, copyBurst.numValidLines)
+            coreg.bursts.append(copyBurst)
+            #######################################################
 
-    coreg.numberOfBursts = len(coreg.bursts)
+        coreg.numberOfBursts = len(coreg.bursts)
 
-    self._insar.saveProduct(coreg, self._insar.fineCoregDirname + '.xml')
+        self._insar.saveProduct(coreg, os.path.join(self._insar.fineCoregDirname, 'IW{0}.xml'.format(swath)))
 

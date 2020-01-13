@@ -3,15 +3,15 @@
 
 struct GLOBALS
 {
-	int quad_pol;
-	int ALOS_format;
-	int dopp;
-	int force_slope;
+        int quad_pol;
+        int ALOS_format;
+        int dopp;
+        int force_slope;
 
-	double forced_slope;
-	double tbias;
+        double forced_slope;
+        double tbias;
 
-	char *imagefilename;
+        char *imagefilename;
 };
 
-#endif alosglobals_h
+#endif //alosglobals_h

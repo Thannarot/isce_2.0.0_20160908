@@ -34,4 +34,4 @@ void tranmat_F(double a[3][3], double b[3][3]);
 void matmat_C(double a[3][3], double b[3][3], double c[3][3]);
 void matvec_C(double a[3][3], double b[3], double c[3]);
 void tranmat_C(double a[3][3], double b[3][3]);
-#endif linalg3_h
+#endif //linalg3_h

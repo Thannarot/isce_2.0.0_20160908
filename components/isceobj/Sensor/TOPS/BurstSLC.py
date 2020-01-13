@@ -187,6 +187,49 @@ NUMBER_VALID_SAMPLES = Component.Parameter('numValidSamples',
         mandatory = True,
         doc = 'Number of valid samples in the burst SLC')
 
+#add these for doing bandpass filtering, Cunren Liang, 27-FEB-2018
+RANGE_WINDOW_TYPE = Component.Parameter('rangeWindowType',
+        public_name='range window type',
+        default = None,
+        type=str,
+        mandatory=True,
+        doc = 'Range weight window type')
+
+RANGE_WINDOW_COEEFICIENT = Component.Parameter('rangeWindowCoefficient',
+        public_name = 'range window coefficient',
+        default = None,
+        type = float,
+        mandatory = True,
+        doc = 'Range weight window coefficient')
+
+RANGE_PROCESSING_BANDWIDTH = Component.Parameter('rangeProcessingBandwidth',
+        public_name = 'range processing bandwidth',
+        default = None,
+        type = float,
+        mandatory = True,
+        doc = 'Range processing bandwidth in Hz')
+
+AZIMUTH_WINDOW_TYPE = Component.Parameter('azimuthWindowType',
+        public_name='azimuth window type',
+        default = None,
+        type=str,
+        mandatory=True,
+        doc = 'Azimuth weight window type')
+
+AZIMUTH_WINDOW_COEEFICIENT = Component.Parameter('azimuthWindowCoefficient',
+        public_name = 'azimuth window coefficient',
+        default = None,
+        type = float,
+        mandatory = True,
+        doc = 'Azimuth weight window coefficient')
+
+AZIMUTH_PROCESSING_BANDWIDTH = Component.Parameter('azimuthProcessingBandwidth',
+        public_name = 'azimuth processing bandwidth',
+        default = None,
+        type = float,
+        mandatory = True,
+        doc = 'Azimuth processing bandwidth in Hz')
+
 
 ####List of facilities
 ORBIT = Component.Facility('orbit',
@@ -247,6 +290,12 @@ class BurstSLC(Component):
                       NUMBER_VALID_LINES,
                       FIRST_VALID_SAMPLE,
                       NUMBER_VALID_SAMPLES,
+                      RANGE_WINDOW_TYPE,
+                      RANGE_WINDOW_COEEFICIENT,
+                      RANGE_PROCESSING_BANDWIDTH,
+                      AZIMUTH_WINDOW_TYPE,
+                      AZIMUTH_WINDOW_COEEFICIENT,
+                      AZIMUTH_PROCESSING_BANDWIDTH,
                     )
 
 
@@ -305,3 +354,12 @@ class BurstSLC(Component):
 
         bbox = [np.min(pos[:,0]), np.max(pos[:,0]), np.min(pos[:,1]), np.max(pos[:,1])]
         return bbox
+
+    def clone(self):
+        import copy
+        res = copy.deepcopy(self)
+        res.image._accessor = None
+        res.image._factory = None
+
+        return res
+

@@ -9,18 +9,17 @@ import isceobj
 import datetime
 import sys
 import logging
-from isceobj.Util.decorators import use_api
 
 logger = logging.getLogger('isce.topsinsar.coarseoffsets')
 
-@use_api
-def runGeo2rdr(info, rdict, misreg_az=0.0, misreg_rg=0.0):
+def runGeo2rdr(info, rdict, misreg_az=0.0, misreg_rg=0.0, virtual=False):
     from zerodop.geo2rdr import createGeo2rdr
     from isceobj.Planet.Planet import Planet
 
     latImage = isceobj.createImage()
     latImage.load(rdict['lat'] + '.xml')
     latImage.setAccessMode('READ')
+
 
     lonImage = isceobj.createImage()
     lonImage.load(rdict['lon'] + '.xml')
@@ -71,63 +70,74 @@ def runCoarseOffsets(self):
     '''
     Estimate offsets for the overlap regions of the bursts.
     '''
+    
+    virtual = self.useVirtualFiles
+    if not self.doESD:
+        return 
+
 
     ##Catalog
     catalog = isceobj.Catalog.createCatalog(self._insar.procDoc.name)
-
-    ##Load slave metadata
-    slave = self._insar.loadProduct(self._insar.slaveSlcProduct + '.xml')
-
-    
-    ###Offsets output directory
-    outdir = os.path.join(self._insar.coarseOffsetsDirname, self._insar.overlapsSubDirname)
-
-    if not os.path.isdir(outdir):
-        os.makedirs(outdir)
-
-   
     misreg_az = self._insar.slaveTimingCorrection
     catalog.addItem('Initial slave azimuth timing correction', misreg_az, 'coarseoff')
 
     misreg_rg = self._insar.slaveRangeCorrection
     catalog.addItem('Initial slave range timing correction', misreg_rg, 'coarseoff')
 
-    fields = []
+    swathList = self._insar.getValidSwathList(self.swaths)
+    
+    for swath in swathList:
 
-    ###Burst indices w.r.t master
-    minBurst = self._insar.commonBurstStartMasterIndex
-    maxBurst =  minBurst + self._insar.numberOfCommonBursts - 1 ###-1 for overlaps
-    masterOverlapDir = os.path.join(self._insar.masterSlcProduct, self._insar.overlapsSubDirname)
-    geomOverlapDir = os.path.join(self._insar.geometryDirname, self._insar.overlapsSubDirname)
+        if self._insar.numberOfCommonBursts[swath-1] < 2:
+            print('Skipping coarse offsets for swath IW{0}'.format(swath))
+            continue
 
-    slaveBurstStart = self._insar.commonBurstStartSlaveIndex
+        ##Load slave metadata
+        slave = self._insar.loadProduct(os.path.join(self._insar.slaveSlcProduct, 'IW{0}.xml'.format(swath)))
 
-    catalog.addItem('Number of overlap pairs', maxBurst - minBurst, 'coarseoff')
+    
+        ###Offsets output directory
+        outdir = os.path.join(self._insar.coarseOffsetsDirname, self._insar.overlapsSubDirname, 'IW{0}'.format(swath))
 
-    for mBurst in range(minBurst, maxBurst):
+        if not os.path.isdir(outdir):
+            os.makedirs(outdir)
 
-        ###Corresponding slave burst
-        sBurst = slaveBurstStart + (mBurst - minBurst)
-        burstTop = slave.bursts[sBurst]
-        burstBot = slave.bursts[sBurst+1]
 
-        logger.info('Overlap pair {0}: Burst {1} of master matched with Burst {2} of slave'.format(mBurst-minBurst, mBurst, sBurst))
-        ####Generate offsets for top burst
-        rdict = {'lat': os.path.join(geomOverlapDir,'lat_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
-                 'lon': os.path.join(geomOverlapDir,'lon_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
-                 'hgt': os.path.join(geomOverlapDir,'hgt_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
-                 'rangeOffName': os.path.join(outdir, 'range_top_%02d_%02d.off'%(mBurst+1,mBurst+2)),
-                 'azOffName': os.path.join(outdir, 'azimuth_top_%02d_%02d.off'%(mBurst+1,mBurst+2))}
-        
-        runGeo2rdr(burstTop, rdict, misreg_az=misreg_az, misreg_rg=misreg_rg)
+        ###Burst indices w.r.t master
+        minBurst = self._insar.commonBurstStartMasterIndex[swath-1]
+        maxBurst =  minBurst + self._insar.numberOfCommonBursts[swath-1] - 1 ###-1 for overlaps
+        masterOverlapDir = os.path.join(self._insar.masterSlcOverlapProduct, 'IW{0}'.format(swath))
+        geomOverlapDir = os.path.join(self._insar.geometryDirname, self._insar.overlapsSubDirname, 'IW{0}'.format(swath))
 
-        logger.info('Overlap pair {0}: Burst {1} of master matched with Burst {2} of slave'.format(mBurst-minBurst, mBurst+1, sBurst+1))
-        ####Generate offsets for bottom burst
-        rdict = {'lat': os.path.join(geomOverlapDir,'lat_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
-                 'lon': os.path.join(geomOverlapDir, 'lon_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
-                 'hgt': os.path.join(geomOverlapDir, 'hgt_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
-                 'rangeOffName': os.path.join(outdir, 'range_bot_%02d_%02d.off'%(mBurst+1,mBurst+2)),
-                 'azOffName': os.path.join(outdir, 'azimuth_bot_%02d_%02d.off'%(mBurst+1,mBurst+2))}
+        slaveBurstStart = self._insar.commonBurstStartSlaveIndex[swath-1]
+
+        catalog.addItem('Number of overlap pairs - IW-{0}'.format(swath), maxBurst - minBurst, 'coarseoff')
+
+        for mBurst in range(minBurst, maxBurst):
+
+            ###Corresponding slave burst
+            sBurst = slaveBurstStart + (mBurst - minBurst)
+            burstTop = slave.bursts[sBurst]
+            burstBot = slave.bursts[sBurst+1]
+
+            logger.info('Overlap pair {0}, IW-{3}: Burst {1} of master matched with Burst {2} of slave'.format(mBurst-minBurst, mBurst, sBurst, swath))
+            ####Generate offsets for top burst
+            rdict = {'lat': os.path.join(geomOverlapDir,'lat_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
+                     'lon': os.path.join(geomOverlapDir,'lon_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
+                     'hgt': os.path.join(geomOverlapDir,'hgt_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
+                     'rangeOffName': os.path.join(outdir, 'range_top_%02d_%02d.off'%(mBurst+1,mBurst+2)),
+                    'azOffName': os.path.join(outdir, 'azimuth_top_%02d_%02d.off'%(mBurst+1,mBurst+2))}
+       
+            runGeo2rdr(burstTop, rdict, misreg_az=misreg_az, misreg_rg=misreg_rg)
+
+            logger.info('Overlap pair {0} - IW-{3}: Burst {1} of master matched with Burst {2} of slave'.format(mBurst-minBurst, mBurst+1, sBurst+1, swath))
+
+            ####Generate offsets for bottom burst
+            rdict = {'lat': os.path.join(geomOverlapDir,'lat_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
+                     'lon': os.path.join(geomOverlapDir, 'lon_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
+                     'hgt': os.path.join(geomOverlapDir, 'hgt_%02d_%02d.rdr'%(mBurst+1,mBurst+2)),
+                     'rangeOffName': os.path.join(outdir, 'range_bot_%02d_%02d.off'%(mBurst+1,mBurst+2)),
+                    'azOffName': os.path.join(outdir, 'azimuth_bot_%02d_%02d.off'%(mBurst+1,mBurst+2))}
              
-        runGeo2rdr(burstBot, rdict, misreg_az=misreg_az, misreg_rg=misreg_rg)
+            runGeo2rdr(burstBot, rdict, misreg_az=misreg_az, misreg_rg=misreg_rg, virtual=virtual)
 

@@ -30,6 +30,7 @@ COMMON_BURST_START_MASTER_INDEX  = Component.Parameter('commonBurstStartMasterIn
                                 public_name = 'common burst start master index',
                                 default = None,
                                 type = int,
+                                container=list,
                                 mandatory = False,
                                 doc = 'Master burst start index for common bursts')
 
@@ -37,6 +38,7 @@ COMMON_BURST_START_SLAVE_INDEX = Component.Parameter('commonBurstStartSlaveIndex
                                 public_name = 'common burst start slave index',
                                 default = None,
                                 type = int,
+                                container=list,
                                 mandatory = False,
                                 doc = 'Slave burst start index for common bursts')
 
@@ -44,6 +46,7 @@ NUMBER_COMMON_BURSTS = Component.Parameter('numberOfCommonBursts',
                                 public_name = 'number of common bursts',
                                 default = None,
                                 type = int,
+                                container=list,
                                 mandatory = False,
                                 doc = 'Number of common bursts between slave and master')
 
@@ -140,6 +143,13 @@ SLAVE_TIMING_CORRECTION = Component.Parameter('slaveTimingCorrection',
                                 type = float,
                                 mandatory = False,
                                 doc = 'Timing correction in secs to apply to slave')
+
+NUMBER_OF_SWATHS = Component.Parameter('numberOfSwaths',
+                                public_name = 'number of swaths',
+                                default=0,
+                                type=int,
+                                mandatory = False,
+                                doc = 'Number of swaths')
 
 APPLY_WATER_MASK = Component.Parameter(
     'applyWaterMask',
@@ -247,12 +257,96 @@ GEOCODE_LIST = Component.Parameter('geocode_list',
     mandatory=False,
     doc='List of files to geocode'
 )
+
 UNMASKED_PREFIX = Component.Parameter('unmaskedPrefix',
                                    public_name='unmasked filename prefix',
                                    default='unmasked',
                                    type=str,
                                    mandatory=False,
                                    doc='Prefix prepended to the image filenames that have not been water masked')
+
+
+####Adding things from topsOffsetApp for integration
+OFFSET_TOP = Component.Parameter(
+    'offset_top',
+    public_name='Top offset location',
+    default=None,
+    type=int,
+    mandatory=False,
+    doc='Ampcor-calculated top offset location. Overridden by workflow.'
+                                    )
+
+OFFSET_LEFT = Component.Parameter(
+    'offset_left',
+    public_name='Left offset location',
+    default=None,
+    type=int,
+    mandatory=False,
+    doc='Ampcor-calculated left offset location. Overridden by workflow.'
+                                    )
+
+OFFSET_WIDTH = Component.Parameter(
+    'offset_width',
+    public_name='Offset image nCols',
+    default=None,
+    type=int,
+    mandatory=False,
+    doc='Number of columns in the final offset field (calculated in DenseAmpcor).'
+                                        )
+
+OFFSET_LENGTH = Component.Parameter(
+    'offset_length',
+    public_name='Offset image nRows',
+    default=None,
+    type=int,
+    mandatory=False,
+    doc='Number of rows in the final offset field (calculated in DenseAmpcor).'
+                                        )
+
+OFFSET_OUTPUT_FILE = Component.Parameter(
+    'offsetfile',
+    public_name='Offset filename',
+    default='dense_offsets.bil',
+    type=str,
+    mandatory=False,
+    doc='Filename for gross dense offsets BIL. Used in runDenseOffsets.'
+                                            )
+
+OFFSET_SNR_FILE = Component.Parameter(
+        'snrfile',
+        public_name='Offset SNR filename',
+        default='dense_offsets_snr.bil',
+        type=str,
+        mandatory=False,
+        doc='Filename for gross dense offsets SNR. Used in runDenseOffsets.')
+
+OFFSET_COV_FILE = Component.Parameter(
+        'covfile',
+        public_name='Offset covariance filename',
+        default='dense_offsets_cov.bil',
+        type=str,
+        mandatory=False,
+        doc='Filename for gross dense offsets covariance. Used in runDenseOffsets.')
+
+FILT_OFFSET_OUTPUT_FILE = Component.Parameter(
+    'filt_offsetfile',
+    public_name='Filtered offset filename',
+    default='filt_dense_offsets.bil',
+    type=str,
+    mandatory=False,
+    doc='Filename for filtered dense offsets BIL.'
+                                                )
+
+OFFSET_GEOCODE_LIST = Component.Parameter('off_geocode_list',
+        public_name='offset geocode list',
+        default = [OFFSET_OUTPUT_FILE,
+                   OFFSET_SNR_FILE,
+                   OFFSET_COV_FILE,
+                   FILT_OFFSET_OUTPUT_FILE],
+        container = list,
+        type=str,
+        mandatory=False,
+        doc = 'List of files on offset grid to geocode')
 
 
 
@@ -278,6 +372,7 @@ class TopsProc(Component):
                       OVERLAPS_SUBDIRECTORY,
                       SLAVE_RANGE_CORRECTION,
                       SLAVE_TIMING_CORRECTION,
+                      NUMBER_OF_SWATHS,
                       ESD_DIRNAME,
                       APPLY_WATER_MASK,
                       WATER_MASK_FILENAME,
@@ -292,7 +387,16 @@ class TopsProc(Component):
                       DEM_CROP_FILENAME,
                       GEOCODE_LIST,
                       UNMASKED_PREFIX,
-                      CORRELATION_FILENAME)
+                      CORRELATION_FILENAME,
+                      OFFSET_TOP,
+                      OFFSET_LEFT,
+                      OFFSET_LENGTH,
+                      OFFSET_WIDTH,
+                      OFFSET_OUTPUT_FILE,
+                      OFFSET_SNR_FILE,
+                      OFFSET_COV_FILE,
+                      FILT_OFFSET_OUTPUT_FILE,
+                      OFFSET_GEOCODE_LIST)
 
     facility_list = ()
 
@@ -323,6 +427,13 @@ class TopsProc(Component):
             if isinstance(x, Component.Parameter):
                 y = getattr(self, getattr(x, 'attrname'))
                 self.geocode_list[i] = os.path.join(mergedir, y)
+
+
+        for i,x in enumerate(self.off_geocode_list):
+            if isinstance(x, Component.Parameter):
+                y = getattr(self, getattr(x, 'attrname'))
+                self.off_geocode_list[i] = os.path.join(mergedir, y)
+
         return
 
 
@@ -356,33 +467,81 @@ class TopsProc(Component):
         return None
 
     @property
-    def masterSlcTopOverlapProduct(self):
-        return self.masterSlcProduct + '_top'
+    def masterSlcOverlapProduct(self):
+        return os.path.join(self.masterSlcProduct, self.overlapsSubDirname) 
 
     @property
-    def masterSlcBottomOverlapProduct(self):
-        return self.masterSlcProduct + '_bottom'
+    def coregOverlapProduct(self):
+        return os.path.join(self.coarseCoregDirname, self.overlapsSubDirname)
 
     @property
-    def coregTopOverlapProduct(self):
-        return self.coarseCoregDirname + '_top'
+    def coarseIfgOverlapProduct(self):
+        return os.path.join(self.coarseIfgDirname, self.overlapsSubDirname)
 
-    @property
-    def coregBottomOverlapProduct(self):
-        return self.coarseCoregDirname + '_bottom'
+    def commonMasterBurstLimits(self, ind):
+        return (self.commonBurstStartMasterIndex[ind], self.commonBurstStartMasterIndex[ind] + self.numberOfCommonBursts[ind])
 
-    @property
-    def coarseIfgTopOverlapProduct(self):
-        return self.coarseIfgDirname + '_top'
+    def commonSlaveBurstLimits(self, ind):
+        return (self.commonBurstStartSlaveIndex[ind], self.commonBurstStartSlaveIndex[ind] + self.numberOfCommonBursts[ind])
 
-    @property
-    def coarseIfgBottomOverlapProduct(self):
-        return self.coarseIfgDirname + '_bottom'
 
-    @property
-    def commonMasterBurstLimits(self):
-        return (self.commonBurstStartMasterIndex, self.commonBurstStartMasterIndex + self.numberOfCommonBursts)
+    def getMergedOrbit(self, product):
+        from isceobj.Orbit.Orbit import Orbit
 
-    @property
-    def commonSlaveBurstLimits(self):
-        return (self.commonBurstStartSlaveIndex, self.commonBurstStartSlaveIndex + self.numberOfCommonBursts)
+        ###Create merged orbit
+        orb = Orbit()
+        orb.configure()
+
+        burst = product[0].bursts[0]
+        #Add first burst orbit to begin with
+        for sv in burst.orbit:
+             orb.addStateVector(sv)
+
+
+        for pp in product:
+            ##Add all state vectors
+            for bb in pp.bursts:
+                for sv in bb.orbit:
+                    if (sv.time< orb.minTime) or (sv.time > orb.maxTime):
+                        orb.addStateVector(sv)
+
+                bb.orbit = orb
+
+        return orb
+
+
+
+    def getInputSwathList(self, inlist):
+        '''
+        To be used to get list of swaths that user wants us to process.
+        '''
+        if len(inlist) == 0:
+            return [x+1 for x in range(self.numberOfSwaths)]
+        else:
+            return inlist
+    
+    def getValidSwathList(self, inlist):
+        '''
+        Used to get list of swaths left after applying all filters  - e.g, region of interest.
+        '''
+
+        checklist = self.getInputSwathList(inlist)
+
+        validlist = [x for x in checklist if self.numberOfCommonBursts[x-1] > 0]
+
+        return validlist
+
+    def hasGPU(self):
+        '''
+        Determine if GPU modules are available.
+        '''
+
+        flag = False
+        try:
+            from zerodop.GPUtopozero.GPUtopozero import PyTopozero
+            from zerodop.GPUgeo2rdr.GPUgeo2rdr import PyGeo2rdr
+            flag = True
+        except:
+            pass
+
+        return flag

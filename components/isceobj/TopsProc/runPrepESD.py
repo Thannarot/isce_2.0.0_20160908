@@ -8,14 +8,38 @@ import numpy as np
 import os
 import isceobj
 import logging
-import scipy.signal as SS
 from isceobj.Util.ImageUtil import ImageLib as IML
 import datetime
 import pprint
 from .runFineResamp import getRelativeShifts
-from isceobj.Util.decorators import use_api
 
-def multilook(intName, alks=5, rlks=15):
+def multilook(intname, alks=5, rlks=15):
+    '''
+    Take looks.
+    '''
+    from mroipac.looks.Looks import Looks
+
+    inimg = isceobj.createImage()
+    inimg.load(intname + '.xml')
+
+
+    spl = os.path.splitext(intname)
+    ext = '.{0}alks_{1}rlks'.format(alks, rlks)
+    outFile = spl[0] + ext + spl[1]
+
+
+    lkObj = Looks()
+    lkObj.setDownLooks(alks)
+    lkObj.setAcrossLooks(rlks)
+    lkObj.setInputImage(inimg)
+    lkObj.setOutputFilename(outFile)
+    lkObj.looks()
+
+    print('Output: ', outFile)
+    return outFile
+
+
+def multilook_old(intName, alks=5, rlks=15):
     cmd = 'looks.py -i {0} -a {1} -r {2}'.format(intName,alks,rlks)
     flag = os.system(cmd)
 
@@ -152,6 +176,7 @@ def createCoherence(intfile, win=5):
     '''
     Compute coherence using scipy convolve 2D.
     '''
+    import scipy.signal as SS
 
     corfile = os.path.splitext(intfile)[0] + '.cor'
     filt = np.ones((win,win))/ (1.0*win*win)
@@ -174,123 +199,132 @@ def createCoherence(intfile, win=5):
     img = isceobj.createImage()
     img.setFilename(corfile)
     img.setWidth(res.shape[1])
+    img.setLength(res.shape[0])
     img.dataType='FLOAT'
     img.setAccessMode('READ')
-    img.createImage()
     img.renderHdr()
-    img.finalizeImage()
 
     return corfile
 
-@use_api
 def runPrepESD(self):
     '''
     Create additional layers for performing ESD.
     '''
 
-    minBurst, maxBurst = self._insar.commonMasterBurstLimits
-    slaveBurstStart, slaveBurstEnd = self._insar.commonSlaveBurstLimits
-
-    ####Load full products
-    master = self._insar.loadProduct(self._insar.masterSlcProduct + '.xml')
-    slave = self._insar.loadProduct(self._insar.slaveSlcProduct + '.xml')
-
-    ####Estimate relative shifts
-    relShifts = getRelativeShifts(master, slave, minBurst, maxBurst, slaveBurstStart)
-    maxBurst = maxBurst - 1 ###For overlaps
-
-    ####Load metadata for burst IFGs
-    ifgTop = self._insar.loadProduct( self._insar.coarseIfgTopOverlapProduct + '.xml')
-    ifgBottom = self._insar.loadProduct ( self._insar.coarseIfgBottomOverlapProduct + '.xml')
+    if not self.doESD:
+        return
 
 
-    print('Relative shifts:')
-    pprint.pprint(relShifts)
-
-    ####Create ESD output directory
-    esddir = self._insar.esdDirname
-    if not os.path.isdir(esddir):
-        os.makedirs(esddir)
-
-    ####Overlap offsets directory
-    offdir = os.path.join( self._insar.coarseOffsetsDirname, self._insar.overlapsSubDirname)
-
-    ifglist = []
-    factorlist = []
-    offsetlist = []
-    cohlist = []
-
-    for ii in range(minBurst, maxBurst):
-        ind = ii - minBurst            ###Index into overlaps
-        sind = slaveBurstStart + ind   ###Index into slave
-
-        topShift = relShifts[sind]
-        botShift = relShifts[sind+1]
+    swathList = self._insar.getValidSwathList(self.swaths)
 
 
-        topBurstIfg = ifgTop.bursts[ind]
-        botBurstIfg = ifgBottom.bursts[ind]
+    for swath in swathList:
+        if self._insar.numberOfCommonBursts[swath-1] < 2:
+            print('Skipping prepesd for swath IW{0}'.format(swath))
+            continue
+
+        minBurst, maxBurst = self._insar.commonMasterBurstLimits(swath-1)
+        slaveBurstStart, slaveBurstEnd = self._insar.commonSlaveBurstLimits(swath-1)
 
 
-        ####Double difference interferograms
-        topInt = np.memmap( topBurstIfg.image.filename,
-                dtype=np.complex64, mode='r',
-                shape = (topBurstIfg.numberOfLines, topBurstIfg.numberOfSamples))
+        ####Load full products
+        master = self._insar.loadProduct( os.path.join(self._insar.masterSlcProduct, 'IW{0}.xml'.format(swath)))
+        slave = self._insar.loadProduct( os.path.join(self._insar.slaveSlcProduct, 'IW{0}.xml'.format(swath)))
 
-        botInt = np.memmap( botBurstIfg.image.filename,
-                dtype=np.complex64, mode='r',
-                shape = (botBurstIfg.numberOfLines, botBurstIfg.numberOfSamples))
+        ####Estimate relative shifts
+        relShifts = getRelativeShifts(master, slave, minBurst, maxBurst, slaveBurstStart)
+        maxBurst = maxBurst - 1 ###For overlaps
 
-        intName = os.path.join(esddir, 'overlap_%02d.int'%(ii+1))
-        freqName = os.path.join(esddir, 'freq_%02d.bin'%(ii+1))
-
-        with open(intName, 'wb') as fid:
-            fid.write( topInt * np.conj(botInt))
-
-        img = isceobj.createIntImage()
-        img.setFilename(intName)
-        img.setWidth(topBurstIfg.numberOfSamples)
-        img.setAccessMode('READ')
-        img.createImage()
-        img.renderHdr()
-        img.finalizeImage()
-
-        multIntName= multilook(intName, alks = self.esdAzimuthLooks, rlks=self.esdRangeLooks)
-        ifglist.append(multIntName)
+        ####Load metadata for burst IFGs
+        ifgTop = self._insar.loadProduct( os.path.join(self._insar.coarseIfgOverlapProduct, 'top_IW{0}.xml'.format(swath)))
+        ifgBottom = self._insar.loadProduct( os.path.join(self._insar.coarseIfgOverlapProduct, 'bottom_IW{0}.xml'.format(swath)))
 
 
-        ####Estimate coherence of double different interferograms
-        multCor = createCoherence(multIntName)
-        cohlist.append(multCor)
+        print('Relative shifts for swath {0}:'.format(swath))
+        pprint.pprint(relShifts)
 
-        ####Estimate the frequency difference 
-        azTop = os.path.join(offdir, 'azimuth_top_%02d_%02d.off'%(ii+1,ii+2))
-        rgTop = os.path.join(offdir, 'range_top_%02d_%02d.off'%(ii+1,ii+2))
-        azBot = os.path.join(offdir, 'azimuth_bot_%02d_%02d.off'%(ii+1,ii+2))
-        rgBot = os.path.join(offdir, 'range_bot_%02d_%02d.off'%(ii+1,ii+2))
+        ####Create ESD output directory
+        esddir = self._insar.esdDirname
+        if not os.path.isdir(esddir):
+            os.makedirs(esddir)
 
-        mFullTop = master.bursts[ii]
-        mFullBot = master.bursts[ii+1]
-        sFullTop = slave.bursts[sind]
-        sFullBot = slave.bursts[sind+1]
+        ####Overlap offsets directory
+        offdir = os.path.join( self._insar.coarseOffsetsDirname, self._insar.overlapsSubDirname, 'IW{0}'.format(swath))
 
-        freqdiff = overlapSpectralSeparation(topBurstIfg, botBurstIfg, mFullTop, mFullBot, sFullTop, sFullBot, azTop, rgTop, azBot, rgBot)
+        ifglist = []
+        factorlist = []
+        offsetlist = []
+        cohlist = []
 
-        with open(freqName, 'wb') as fid:
-            (freqdiff * 2 * np.pi * mFullTop.azimuthTimeInterval).astype(np.float32).tofile(fid)
+        for ii in range(minBurst, maxBurst):
+            ind = ii - minBurst            ###Index into overlaps
+            sind = slaveBurstStart + ind   ###Index into slave
 
-        img = isceobj.createImage()
-        img.setFilename(freqName)
-        img.setWidth(topBurstIfg.numberOfSamples)
-        img.setAccessMode('READ')
-        img.bands = 1
-        img.dataType = 'FLOAT'
-        img.createImage()
-        img.renderHdr()
-        img.finalizeImage()
+            topShift = relShifts[sind]
+            botShift = relShifts[sind+1]
 
-        multConstName = multilook(freqName, alks = self.esdAzimuthLooks, rlks = self.esdRangeLooks)
-        factorlist.append(multConstName)
+
+            topBurstIfg = ifgTop.bursts[ind]
+            botBurstIfg = ifgBottom.bursts[ind]
+
+
+            ####Double difference interferograms
+            topInt = np.memmap( topBurstIfg.image.filename,
+                    dtype=np.complex64, mode='r',
+                    shape = (topBurstIfg.numberOfLines, topBurstIfg.numberOfSamples))
+
+            botInt = np.memmap( botBurstIfg.image.filename,
+                    dtype=np.complex64, mode='r',
+                    shape = (botBurstIfg.numberOfLines, botBurstIfg.numberOfSamples))
+
+            intName = os.path.join(esddir, 'overlap_IW%d_%02d.int'%(swath,ii+1))
+            freqName = os.path.join(esddir, 'freq_IW%d_%02d.bin'%(swath,ii+1))
+
+            with open(intName, 'wb') as fid:
+                fid.write( topInt * np.conj(botInt))
+
+            img = isceobj.createIntImage()
+            img.setFilename(intName)
+            img.setLength(topBurstIfg.numberOfLines)
+            img.setWidth(topBurstIfg.numberOfSamples)
+            img.setAccessMode('READ')
+            img.renderHdr()
+
+            multIntName= multilook(intName, alks = self.esdAzimuthLooks, rlks=self.esdRangeLooks)
+            ifglist.append(multIntName)
+
+
+            ####Estimate coherence of double different interferograms
+            multCor = createCoherence(multIntName)
+            cohlist.append(multCor)
+
+            ####Estimate the frequency difference 
+            azTop = os.path.join(offdir, 'azimuth_top_%02d_%02d.off'%(ii+1,ii+2))
+            rgTop = os.path.join(offdir, 'range_top_%02d_%02d.off'%(ii+1,ii+2))
+            azBot = os.path.join(offdir, 'azimuth_bot_%02d_%02d.off'%(ii+1,ii+2))
+            rgBot = os.path.join(offdir, 'range_bot_%02d_%02d.off'%(ii+1,ii+2))
+
+            mFullTop = master.bursts[ii]
+            mFullBot = master.bursts[ii+1]
+            sFullTop = slave.bursts[sind]
+            sFullBot = slave.bursts[sind+1]
+
+            freqdiff = overlapSpectralSeparation(topBurstIfg, botBurstIfg, mFullTop, mFullBot, sFullTop, sFullBot, azTop, rgTop, azBot, rgBot)
+
+            with open(freqName, 'wb') as fid:
+                (freqdiff * 2 * np.pi * mFullTop.azimuthTimeInterval).astype(np.float32).tofile(fid)
+
+            img = isceobj.createImage()
+            img.setFilename(freqName)
+            img.setWidth(topBurstIfg.numberOfSamples)
+            img.setLength(topBurstIfg.numberOfLines)
+            img.setAccessMode('READ')
+            img.bands = 1
+            img.dataType = 'FLOAT'
+            img.renderHdr()
+
+            multConstName = multilook(freqName, alks = self.esdAzimuthLooks, rlks = self.esdRangeLooks)
+            factorlist.append(multConstName)
 
         
         

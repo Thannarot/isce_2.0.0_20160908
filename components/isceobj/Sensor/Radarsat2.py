@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# copyright: 2010 to the present, california institute of technology.
-# all rights reserved. united states government sponsorship acknowledged.
-# any commercial use must be negotiated with the office of technology transfer
-# at the california institute of technology.
+# Copyright 2010 California Institute of Technology. ALL RIGHTS RESERVED.
 # 
-# this software may be subject to u.s. export control laws. by accepting this
-# software, the user agrees to comply with all applicable u.s. export laws and
-# regulations. user has the responsibility to obtain export licenses,  or other
-# export authority as may be required before exporting such information to
-# foreign countries or providing access to foreign persons.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 # 
-# installation and use of this software is restricted by a license agreement
-# between the licensee and the california institute of technology. it is the
-# user's responsibility to abide by the terms of the license agreement.
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+# United States Government Sponsorship acknowledged. This software is subject to
+# U.S. export control laws and regulations and has been classified as 'EAR99 NLR'
+# (No [Export] License Required except when exporting to an embargoed country,
+# end user, or in support of a prohibited end use). By downloading this software,
+# the user agrees to comply with all applicable U.S. export laws and regulations.
+# The user has the responsibility to obtain export licenses, or other export
+# authority as may be required before exporting this software to any 'EAR99'
+# embargoed foreign country or citizen of those countries.
 #
 # Author: Walter Szeliga
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -59,6 +67,22 @@ XML = Component.Parameter(
     doc='RadarSAT2 xml metadata file'
 )
 
+ORBIT_DIRECTORY = Component.Parameter(
+        'orbitDirectory',
+        public_name = 'orbit directory',
+        default=None,
+        type=str,
+        mandatory=False,
+        doc='Directory with Radarsat2 precise orbits')
+
+ORBIT_FILE = Component.Parameter(
+        'orbitFile',
+        public_name = 'orbit file',
+        default = None,
+        type = str,
+        mandatory = False,
+        doc = 'Precise orbit file to use')
+
 from .Sensor import Sensor
 class Radarsat2(Sensor):
     """
@@ -66,7 +90,7 @@ class Radarsat2(Sensor):
     """
 
     family='radarsat2'
-    parameter_list = (XML, TIFF) + Sensor.parameter_list
+    parameter_list = (XML, TIFF, ORBIT_DIRECTORY, ORBIT_FILE ) + Sensor.parameter_list
 
     def __init__(self, family='', name=''):
         super().__init__(family if family else  self.__class__.family, name=name)
@@ -164,31 +188,19 @@ class Radarsat2(Sensor):
         self.frame.setNumberOfSamples(samples)
         self.frame.setProcessingFacility(facility)
         self.frame.setProcessingSoftwareVersion(version)
-
-        # Initialize orbit objects
-        # Read into temp orbit first.
-        # Radarsat 2 needs orbit extensions.
-        tempOrbit = Orbit()
-
-        self.frame.getOrbit().setOrbitSource('Header: ' + self.product.sourceAttributes.orbitAndAttitude.orbitInformation.orbitDataFile)
         self.frame.setPassDirection(passDirection)
-        stateVectors = self.product.sourceAttributes.orbitAndAttitude.orbitInformation.stateVectors
-        for i in range(len(stateVectors)):
-            position = [stateVectors[i].xPosition, stateVectors[i].yPosition, stateVectors[i].zPosition]
-            velocity = [stateVectors[i].xVelocity, stateVectors[i].yVelocity, stateVectors[i].zVelocity]
-            vec = StateVector()
-            vec.setTime(stateVectors[i].timeStamp)
-            vec.setPosition(position)
-            vec.setVelocity(velocity)
-            tempOrbit.addStateVector(vec)
 
-        planet = self.frame.instrument.platform.planet
-        orbExt = OrbitExtender(planet=planet)
-        orbExt.configure()
-        newOrb = orbExt.extendOrbit(tempOrbit)
+        self.frame.getOrbit().setOrbitSource(self.product.sourceAttributes.orbitAndAttitude.orbitInformation.orbitDataFile)
+        
+        if (self.orbitFile is None) and (self.orbitDirectory is None):
+            self.extractOrbit()
 
-        for sv in newOrb:
-            self.frame.getOrbit().addStateVector(sv)
+        elif (self.orbitDirectory is not None):
+            self.orbitFile = findPreciseOrbit(self.orbitDirectory, self.frame.getOrbit().getOrbitSource(), self.frame.sensingStart.year)
+
+        if self.orbitFile is not None:
+            self.extractPreciseOrbit(self.orbitFile, self.frame.sensingStart, self.frame.sensingStop)
+        
 
 # save the Doppler centroid coefficients, converting units from product.xml file
 # units in the file are quadratic coefficients in Hz, Hz/sec, and Hz/(sec^2)
@@ -222,6 +234,77 @@ class Radarsat2(Sensor):
 #        SCHvelocity = 7550.75  # hard code orbit velocity for now m/s
 #        prf = SCHvelocity/azimuthPixelSize
 #        instrument.setPulseRepetitionFrequency(prf)
+
+    def extractOrbit(self):
+        '''
+        Extract the orbit state vectors from the XML file.
+        '''
+
+        # Initialize orbit objects
+        # Read into temp orbit first.
+        # Radarsat 2 needs orbit extensions.
+        tempOrbit = Orbit()
+
+        self.frame.getOrbit().setOrbitSource('Header: ' + self.frame.getOrbit().getOrbitSource())
+        stateVectors = self.product.sourceAttributes.orbitAndAttitude.orbitInformation.stateVectors
+        for i in range(len(stateVectors)):
+            position = [stateVectors[i].xPosition, stateVectors[i].yPosition, stateVectors[i].zPosition]
+            velocity = [stateVectors[i].xVelocity, stateVectors[i].yVelocity, stateVectors[i].zVelocity]
+            vec = StateVector()
+            vec.setTime(stateVectors[i].timeStamp)
+            vec.setPosition(position)
+            vec.setVelocity(velocity)
+            tempOrbit.addStateVector(vec)
+
+        planet = self.frame.instrument.platform.planet
+        orbExt = OrbitExtender(planet=planet)
+        orbExt.configure()
+        newOrb = orbExt.extendOrbit(tempOrbit)
+
+        for sv in newOrb:
+            self.frame.getOrbit().addStateVector(sv)
+
+        print('Successfully read state vectors from product XML')
+
+    def extractPreciseOrbit(self, orbitfile, tstart, tend):
+        '''
+        Extract precise orbits for given time-period from orbit file.
+        '''
+
+        self.frame.getOrbit().setOrbitSource('File: ' + orbitfile)
+
+        tmin = tstart - datetime.timedelta(seconds=30.)
+        tmax = tstart + datetime.timedelta(seconds=30.)
+
+        fid = open(orbitfile, 'r')
+        for line in fid:
+            if not line.startswith('; Position'):
+                continue
+            else:
+                break
+
+        for line in fid:
+            if not line.startswith(';###END'):
+                tstamp = convertRSTimeToDateTime(line)
+                
+                if (tstamp >= tmin) and (tstamp <= tmax):
+                    sv = StateVector()
+                    sv.configure()
+                    sv.setTime( tstamp)
+                    sv.setPosition( [float(x) for x in fid.readline().split()])
+                    sv.setVelocity( [float(x) for x in fid.readline().split()])
+
+                    self.frame.getOrbit().addStateVector(sv)
+                else:
+                    fid.readline()
+                    fid.readline()
+
+                dummy = fid.readline()
+                if not dummy.startswith(';'):
+                    raise Exception('Expected line to start with ";". Got {0}'.format(dummy))
+
+        fid.close()
+        print('Successfully read {0} state vectors from {1}'.format( len(self.frame.getOrbit()._stateVectors), orbitfile))
 
     def extractImage(self, verbose=True):
         '''
@@ -1162,3 +1245,40 @@ class _RationalFunctions(Radarsat2Namespace):
 
     def __str__(self):
         return ""
+
+
+def findPreciseOrbit(dirname, fname, year):
+    '''
+    Find precise orbit file in given folder.
+    '''
+
+    import glob
+
+    ###First try root folder itself
+    res = glob.glob( os.path.join(dirname, fname.lower()))
+    if len(res) == 0:
+
+        res = glob.glob( os.path.join(dirname, "{0}".format(year), fname.lower()))
+        if len(res) == 0:
+            raise Exception('Orbit Dirname provided but no suitable orbit file found in {0}'.format(dirname))
+
+    
+    if len(res) > 1:
+        print('More than one matching result found. Using first result.')
+
+    return res[0]
+
+def convertRSTimeToDateTime(instr):
+    '''
+    Convert RS2 orbit time string to datetime.
+    '''
+
+    parts = instr.strip().split('-')
+    tparts = parts[-1].split(':')
+    secs = float(tparts[2])
+    intsecs = int(secs)
+    musecs = int((secs - intsecs)*1e6)
+
+    timestamp = datetime.datetime(int(parts[0]),1,1, int(tparts[0]), int(tparts[1]), intsecs, musecs) + datetime.timedelta(days = int(parts[1])-1)
+
+    return timestamp
